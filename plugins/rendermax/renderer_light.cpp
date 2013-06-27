@@ -210,7 +210,8 @@ void plotCircle(int xm, int ym, int r,std::function<void(int,int)> setPixel)
 }
 void plotSquare(int xm, int ym, int r,std::function<void(int,int)> setPixel)
 {
-    for(int x = 0; x <= r; x++)
+    //for(int x = 0; x <= r; x++)
+    int x=0;
     {
         setPixel(xm+r, ym+x); /*   I.1 Quadrant */
         setPixel(xm+x, ym+r); /*   I.2 Quadrant */
@@ -233,8 +234,14 @@ void plotLine(int x0, int y0, int x1, int y1,lightCell power,std::function<light
         if(rdx!=0 || rdy!=0) //dirty hack to skip occlusion on the first tile.
         {
             power=setPixel(power,rdx,rdy,x0,y0);
-            if(power.dot(power)<0.00001f)
+            float powerNorm=power.dot(power);
+            if(powerNorm<0.00001f)
                 return;
+            if(powerNorm>0.1f && ((y1-y0!=0)||(x1-x0!=0)))
+            {
+                plotLine(x0,y0,x0-(y1-y0),y0+(x1-x0),power,setPixel);
+                plotLine(x0,y0,x0+(y1-y0),y0-(x1-x0),power,setPixel);
+            }
         }
         if (x0==x1 && y0==y1) break;
         e2 = 2*err;
