@@ -4,11 +4,13 @@ PROJECT (rendermax)
 SET(PROJECT_SRCS
     rendermax.cpp
 	renderer_light.cpp
+	shadow_caster.cpp
 )
 # A list of headers
 SET(PROJECT_HDRS
     renderer_opengl.hpp
 	renderer_light.hpp
+	shadow_caster.hpp
 )
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
 

@@ -15,7 +15,7 @@ private:
         float *fg = p->fg + tile * 4 * 6;
         float *bg = p->bg + tile * 4 * 6;
         float *tex = p->tex + tile * 2 * 6;
-        lightCell light=lightGrid[tile];
+        rgbf light=lightGrid[tile];
         for (int i = 0; i < 6; i++) {
             *(fg++) *= light.r;
             *(fg++) *= light.g;
@@ -39,7 +39,7 @@ private:
     }
 public:
     tthread::fast_mutex dataMutex;
-    std::vector<lightCell> lightGrid;
+    std::vector<rgbf> lightGrid;
     renderer_light(renderer* parent):renderer_wrap(parent)
     {
         reinitLightGrid();
@@ -85,14 +85,14 @@ protected:
 };
 struct lightSource
 {
-    lightCell power;
+    rgbf power;
     int radius;
     bool flicker;
     lightSource():power(0,0,0),radius(0),flicker(false)
     {
 
     }
-    lightSource(lightCell power,int radius);
+    lightSource(rgbf power,int radius);
     float powerSquared()const
     {
         return power.r*power.r+power.g*power.g+power.b*power.b;
@@ -103,16 +103,16 @@ struct lightSource
 struct matLightDef
 {
     bool isTransparent;
-    lightCell transparency;
+    rgbf transparency;
     bool isEmiting;
     bool flicker;
-    lightCell emitColor;
+    rgbf emitColor;
     int radius;
     matLightDef():isTransparent(false),isEmiting(false),transparency(0,0,0),emitColor(0,0,0),radius(0){}
-    matLightDef(lightCell transparency,lightCell emit,int rad):isTransparent(true),isEmiting(true),
+    matLightDef(rgbf transparency,rgbf emit,int rad):isTransparent(true),isEmiting(true),
         transparency(transparency),emitColor(emit),radius(rad){}
-    matLightDef(lightCell emit,int rad):isTransparent(false),isEmiting(true),emitColor(emit),radius(rad),transparency(0,0,0){}
-    matLightDef(lightCell transparency):isTransparent(true),isEmiting(false),transparency(transparency){}
+    matLightDef(rgbf emit,int rad):isTransparent(false),isEmiting(true),emitColor(emit),radius(rad),transparency(0,0,0){}
+    matLightDef(rgbf transparency):isTransparent(true),isEmiting(false),transparency(transparency){}
     lightSource makeSource(float size=1) const
     {
         if(size>0.999 && size<1.001)
@@ -130,6 +130,7 @@ struct buildingLightDef
     float size;
     buildingLightDef():poweredOnly(false),useMaterial(true),thickness(1.0f),size(1.0f){}
 };
+bool isInViewport(const df::coord2d& in,const DFHack::rect2d& r);
 class lightingEngineViewscreen:public lightingEngine
 {
 public:
@@ -147,17 +148,16 @@ public:
 private:
 
     df::coord2d worldToViewportCoord(const df::coord2d& in,const DFHack::rect2d& r,const df::coord2d& window2d) ;
-    bool isInViewport(const df::coord2d& in,const DFHack::rect2d& r);
 
     void doSun(const lightSource& sky,MapExtras::MapCache& map);
     void doOcupancyAndLights();
-    lightCell propogateSun(MapExtras::Block* b, int x,int y,const lightCell& in,bool lastLevel);
-    void doRay(std::vector<lightCell> & target, lightCell power,int cx,int cy,int tx,int ty);
+    rgbf propogateSun(MapExtras::Block* b, int x,int y,const rgbf& in,bool lastLevel);
+    void doRay(std::vector<rgbf> & target, rgbf power,int cx,int cy,int tx,int ty);
     void doFovs();
-	void doLight(std::vector<lightCell> & target, int index);
-    lightCell lightUpCell(std::vector<lightCell> & target, lightCell power,int dx,int dy,int tx,int ty);
+	void doLight(std::vector<rgbf> & target, int index);
+    rgbf lightUpCell(std::vector<rgbf> & target, rgbf power,int dx,int dy,int tx,int ty);
     bool addLight(int tileId,const lightSource& light);
-    void addOclusion(int tileId,const lightCell& c,float thickness);
+    void addOclusion(int tileId,const rgbf& c,float thickness);
 
     matLightDef* getMaterial(int matType,int matIndex);
     buildingLightDef* getBuilding(df::building* bld);
@@ -167,17 +167,25 @@ private:
     //try to find and apply material, if failed return false, and if def!=null then apply def.
     bool applyMaterial(int tileId,int matType,int matIndex,float size=1,float thickness = 1,const matLightDef* def=NULL);
     
+public:
     size_t inline getIndex(int x,int y)
     {
         return x*h+y;
+    }
+    size_t inline getIndex(df::coord2d input)
+    {
+        return getIndex(input.x, input.y);
     }
     df::coord2d inline getCoords(int index)
     {
         return df::coord2d(index/h, index%h);
     }
     //maps
-    std::vector<lightCell> lightMap;
-    std::vector<lightCell> ocupancy;
+    std::vector<rgbf> lightMap;
+public:
+    std::vector<rgbf> ocupancy;
+    lightSource get_light(df::coord2d input) {return lights[getIndex(input)];}
+private:
     std::vector<lightSource> lights;
 
     //Threading stuff
@@ -191,19 +199,20 @@ private:
 public:
 	void lightWorkerThread(void * arg);
 private:
-    lightCell getSkyColor(float v);
+    rgbf getSkyColor(float v);
     bool doDebug;
 
     //settings
     float daySpeed;
     float dayHour; //<0 to cycle
-    std::vector<lightCell> dayColors; // a gradient of colors, first to 0, last to 24
+    std::vector<rgbf> dayColors; // a gradient of colors, first to 0, last to 24
     ///set up sane settings if setting file does not exist.
     void defaultSettings(); 
 
     static int parseMaterials(lua_State* L);
     static int parseSpecial(lua_State* L);
     static int parseBuildings(lua_State* L);
+public:
     //special stuff
     matLightDef matLava;
     matLightDef matIce;
@@ -213,13 +222,14 @@ private:
     matLightDef matWater;
     matLightDef matCitizen;
     float levelDim;
+    DFHack::rect2d mapPort;
+private:
     //materials
     std::map<std::pair<int,int>,matLightDef> matDefs;
     //buildings
     std::map<std::tuple<int,int,int>,buildingLightDef> buildingDefs;
     int w,h;
-    DFHack::rect2d mapPort;
 };
-lightCell blend(lightCell a,lightCell b);
-lightCell blendMax(lightCell a,lightCell b);
+rgbf blend(rgbf a,rgbf b);
+rgbf blendMax(rgbf a,rgbf b);
 #endif
