@@ -1041,10 +1041,11 @@ void lightThread::run()
 {
     while(!isDone)
     {
-        {
-            tthread::lock_guard<tthread::mutex> guard(dispatch.occlusionMutex); 
+        {//wait for occlusion (and lights) to be ready
+            tthread::lock_guard<tthread::mutex> guard(dispatch.occlusionMutex);
+            if(!dispatch.occlusionReady)
             dispatch.occlusionDone.wait(dispatch.occlusionMutex);//wait for work
-            if(dispatch.unprocessed.size()==0) //spurious wake-up
+            if(dispatch.unprocessed.size()==0 || !dispatch.occlusionReady) //spurious wake-up
                 continue;
             if(dispatch.occlusion.size()!=canvas.size()) //oh no somebody resized stuff
                 canvas.resize(dispatch.occlusion.size());
@@ -1053,8 +1054,18 @@ void lightThread::run()
         
         { //get my rectangle (any will do)
             tthread::lock_guard<tthread::mutex> guard(dispatch.unprocessedMutex);
+            if (dispatch.unprocessed.size()==0)
+            {
+                //wtf?? why?!
+                continue;
+            }
             myRect=dispatch.unprocessed.top();
             dispatch.unprocessed.pop();
+            if (dispatch.unprocessed.size()==0)
+            {
+                dispatch.occlusionReady=false;
+            }
+            
         }
         work();
         {
@@ -1171,8 +1182,10 @@ void lightThreadDispatch::signalDoneOcclusion()
         tthread::lock_guard<tthread::mutex> guardWrite(writeLock);
         writeCount=0;
     }
-    tthread::lock_guard<tthread::mutex> guard(occlusionMutex);
-    
+    tthread::lock_guard<tthread::mutex> guard1(occlusionMutex);
+    tthread::lock_guard<tthread::mutex> guard2(unprocessedMutex);
+    while(!unprocessed.empty())
+        unprocessed.pop();
     viewPort=getMapViewport();
     int threadCount=threadPool.size();
     int w=viewPort.second.x-viewPort.first.x;
@@ -1187,10 +1200,12 @@ void lightThreadDispatch::signalDoneOcclusion()
             area.second.x=viewPort.first.x+(i+1)*slicew;
         unprocessed.push(area);
     }
+    occlusionReady=true;
     occlusionDone.notify_all();
 }
 
-lightThreadDispatch::lightThreadDispatch( lightingEngineViewscreen* p ):parent(p),lights(parent->lights),occlusion(parent->ocupancy),lightMap(parent->lightMap),writeCount(0)
+lightThreadDispatch::lightThreadDispatch( lightingEngineViewscreen* p ):parent(p),lights(parent->lights),occlusion(parent->ocupancy),
+    lightMap(parent->lightMap),writeCount(0),occlusionReady(false)
 {
 
 }
@@ -1200,6 +1215,11 @@ void lightThreadDispatch::shutdown()
     for(int i=0;i<threadPool.size();i++)
     {
         threadPool[i]->isDone=true;
+        
+    }
+    occlusionDone.notify_all();//if stuck signal that you are done with stuff.
+    for(int i=0;i<threadPool.size();i++)
+    {
         threadPool[i]->myThread->join();
     }
     threadPool.clear();
@@ -1236,4 +1256,9 @@ void lightThreadDispatch::waitForWrites()
     {
         writesDone.wait(writeLock); //if not, wait a bit
     }
+}
+
+lightThreadDispatch::~lightThreadDispatch()
+{
+    shutdown();
 }
