@@ -127,6 +127,7 @@ include/modules/Vermin.h
 include/modules/World.h
 include/modules/Graphic.h
 include/modules/Once.h
+include/modules/Offscreen.h
 )
 
 SET( MODULE_SOURCES
@@ -152,6 +153,7 @@ modules/World.cpp
 modules/Graphic.cpp
 modules/Windows.cpp
 modules/Once.cpp
+modules/Offscreen.cpp
 )
 
 IF(WIN32)
