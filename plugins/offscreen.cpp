@@ -11,9 +11,6 @@ using namespace DFHack;
 
 DFHACK_PLUGIN("offscreen");
 
-
-bool cache_invalid=true;
-
 static void lua_pushTile(lua_State* L, const screenTile& t)
 {
     lua_createtable(L,0,4);
@@ -70,18 +67,5 @@ DFHACK_PLUGIN_LUA_COMMANDS {
 DFhackCExport command_result plugin_init (color_ostream &out, std::vector <PluginCommand> &commands)
 {
     
-    return CR_OK;
-}
-
-DFhackCExport command_result plugin_onstatechange(color_ostream &out, state_change_event event)
-{
-    switch(event)
-    {
-    case SC_WORLD_UNLOADED:
-        cache_invalid=true;
-        break;
-    default:
-        break;
-    }
     return CR_OK;
 }

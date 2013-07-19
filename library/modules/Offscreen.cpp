@@ -14,6 +14,7 @@
 
 #include "modules/MapCache.h"
 #include "modules/Materials.h"
+#include "modules/Units.h"
 #include "df/unit.h"
 #include "df/building.h"
 #include "df/building_drawbuffer.h"
@@ -22,6 +23,11 @@
 #include "df/item.h"
 #include "df/items_other_id.h"
 #include "df/plant.h"
+#include "df/profession.h"
+#include "df/flow_info.h"
+#include "df/matter_state.h"
+#include "df/descriptor_color.h"
+#include "df/matter_state.h"
 
 const int tilePics[]={32,31,247,30,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240,0,0,0,0,84,88,62,60,0,0,0,0,178,0,86,35,88,62,60,88,62,60,42,43,43,43,43,43,0,88,62,60,88,62,60,88,62,60,88,62,60,88,62,60,0,206,0,15,0,0,39,0,0,0,0,0,
     0,0,0,79,79,79,79,79,0,0,0,0,0,247,247,0,0,0,0,0,
@@ -208,7 +214,7 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                 df::tile_designation d2=cache.designationAt(coord2);
                 df::tiletype_special sp2=ENUM_ATTR(tiletype,special,tt2);
                 bool unDug2= (sp2!=df::tiletype_special::SMOOTH && shape2==df::tiletype_shape::WALL);
-
+                
                 if (d2.bits.flow_size>0)
                 {
                     if(shape!=df::tiletype_shape::RAMP_TOP) //don't show liquid amount on ramp tops
@@ -256,6 +262,7 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
             {
                 if(shape==df::tiletype_shape::RAMP || shape==df::tiletype_shape::BROOK_BED || shape==df::tiletype_shape::RAMP_TOP)
                     curTile.tile=tilePics[tt];
+                colorTile(tileMat,cache,coord,curTile,true);
             }
 
         }
@@ -276,6 +283,75 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                         int wy=p->pos.y-window.first.y;
                         screenTile& curTile=buffer[wx*h+wy];
                         drawPlant(p,curTile);
+                    }
+                }
+                std::vector<df::block_square_event*>& events=b->getRaw()->block_events;
+                for(size_t i=0;i<events.size();i++)
+                {
+                    df::block_square_event* e=events[i];
+                    switch(e->getType())
+                    {
+                    case df::block_square_event_type::grass:
+                        {
+                            df::block_square_event_grassst* grass=static_cast<df::block_square_event_grassst*>(e);
+                            MaterialInfo mat(419, grass->plant_index);
+                            if(mat.isPlant())
+                            {
+                                df::plant_raw* p=mat.plant;
+                                for(int x=0;x<16;x++)
+                                for(int y=0;y<16;y++)
+                                {
+                                    int wx=x+bx*16-window.first.x;
+                                    int wy=y+by*16-window.first.y;
+                                    if(isInRect(df::coord2d(wx,wy),localWindow) && grass->amount[x][y]>0)
+                                    {
+                                        screenTile& curTile=buffer[wx*h+wy];
+                                        /*
+                                        df::tiletype tt=b->tiletypeAt(df::coord2d(x,y));
+                                        df::tiletype_special sp=ENUM_ATTR(tiletype,special,tt);
+                                        df::tiletype_special::DEAD;
+                                        df::tiletype_special::WET;
+                                        df::tiletype_special::NORMAL;
+                                        +variants
+                                        */
+
+                                        curTile.tile=p->tiles.grass_tiles[0];
+                                        curTile.fg=p->colors.grass_colors_0[0];
+                                        curTile.bg=p->colors.grass_colors_1[0];
+                                        curTile.bold=p->colors.grass_colors_2[0];
+                                    }
+                                    
+                                    
+                                }
+                                
+                                
+                                
+                                //TODO alt-tiles
+                            }
+                            
+                            break;
+                        }
+                    case df::block_square_event_type::material_spatter:
+                        {
+                            df::block_square_event_material_spatterst* spatter=static_cast<df::block_square_event_material_spatterst*>(e);
+                            //TODO
+                            //color only if small
+                            //draw waves if pool
+                            break;
+                        }
+                    default:;
+                    }
+                }
+                std::vector<df::flow_info*>& flows=b->getRaw()->flows;
+                for(size_t i=0;i<flows.size();i++)
+                {
+                    df::flow_info* f=flows[i];
+                    int wx=f->pos.x+bx*16-window.first.x;
+                    int wy=f->pos.y+by*16-window.first.y;
+                    if(f->density>0 && isInRect(df::coord2d(wx,wy),localWindow))
+                    {
+                        screenTile& curTile=buffer[wx*h+wy];
+                        drawFlow(f,curTile);
                     }
                 }
             }
@@ -346,24 +422,48 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
             }
             //TODO blood and flows
 }
-
+bool isMilitary(df::unit *u)
+{
+    return u->profession>=df::profession::HAMMERMAN && u->profession<=df::profession::RECRUIT;
+}
 void Offscreen::drawUnit( df::unit* u,screenTile& trg )
 {
     df::creature_raw* cr=df::creature_raw::find(u->race);
+    bool soldier=isMilitary(u);
+    
     if(cr)
     {
+        //u->flags2.bits.swimming -> special swiming stuff?
+        //u->flags3.bits.ghostly -> ghostly stuff
+        if(soldier)
+            trg.tile=cr->creature_soldier_tile;
+        else
+            trg.tile=cr->creature_tile;
+        
+        trg.fg=Units::getProfessionColor(u);
+        trg.bg=cr->color[1];
+        trg.bold=cr->color[2];
+        //TODO glowtiles ,BLINKING
+        
         if(u->caste<cr->caste.size())
         {
             df::caste_raw* casteRaw=cr->caste[u->caste];
-            trg.tile=casteRaw->caste_tile;
-            /*
-            trg.fg=casteRaw->caste_color[0];
-            trg.bg=casteRaw->caste_color[1];
-            trg.bold=casteRaw->caste_color[2];
-            */
-            trg.fg=COLOR_WHITE;
-            //TODO military, profesions and glowtiles
+            //trg.tile=casteRaw->caste_soldier_tile;
+            if(casteRaw->flags.bits[df::caste_raw_flags::CASTE_TILE])
+            {
+                if(soldier)
+                    trg.tile=casteRaw->caste_soldier_tile;
+                else
+                    trg.tile=casteRaw->caste_tile;
+            }
+            if(casteRaw->flags.bits[df::caste_raw_flags::CASTE_COLOR])
+            {
+                trg.fg=Units::getProfessionColor(u);
+                trg.bg=casteRaw->caste_color[1];
+                trg.bold=casteRaw->caste_color[2];
+            }
         }
+        
     }
 }
 
@@ -380,7 +480,7 @@ void Offscreen::drawPlant( df::plant* p,screenTile& trg )
     df::plant_raw* praw=mat.plant;
     if(p->grow_counter<180000) //also some constant?
     {
-        //sapling
+        //sapling ?
         trg.tile=praw->tiles.sapling_tile;
         trg.fg=praw->colors.sapling_color[0];
         trg.bg=praw->colors.sapling_color[1];
@@ -410,4 +510,60 @@ void Offscreen::drawItem( df::item* it,screenTile& trg )
     trg.tile='?';
     trg.fg=COLOR_RED;
     trg.bold=true;
+}
+
+void DFHack::Offscreen::drawFlow( df::flow_info* flow,screenTile& trg )
+{
+    //dragonfire and fire turns yellow at 50%
+    //webs, sea foam, ocean waves are special
+    //else different tile each 25 till 100
+
+    //TODO sea foam, waves, materials
+    if(flow->density==0)
+        return;
+    int d=flow->density/25+1;
+    if(d>4)
+        d=4;
+    int tile=176+d; //TODO constant or configure...
+    trg.tile=tile;
+    switch(flow->type)
+    {
+    case df::flow_type::Dragonfire:
+    case df::flow_type::Fire:
+        {
+            trg.fg=COLOR_RED;
+            if(d>2)
+                trg.fg=COLOR_YELLOW;
+            if(d>1)
+                trg.bold=true;
+            return;
+        }
+    case df::flow_type::MagmaMist:
+         trg.fg=COLOR_YELLOW;
+         trg.bold=true;
+         return;
+    case df::flow_type::Smoke:
+        trg.fg=0;
+        trg.bold=true;
+        return;
+    case df::flow_type::Mist:
+    case df::flow_type::Steam:
+        trg.fg=COLOR_WHITE;
+        trg.bold=true;
+        return;
+    case df::flow_type::MaterialGas:
+    case df::flow_type::MaterialVapor:
+        trg.fg=COLOR_RED;
+        trg.bold=true;
+        return;
+    case df::flow_type::MaterialDust:
+        trg.fg=0;
+        trg.bold=true;
+        return;
+    case df::flow_type::Web:
+        trg.fg=0;
+        trg.bold=true;
+        trg.tile=15;
+        return;
+    }
 }

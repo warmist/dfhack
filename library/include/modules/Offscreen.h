@@ -27,8 +27,10 @@ namespace df
 {
     struct unit;
     struct plant;
+    struct plant_raw;
     struct item;
     struct coord2d;
+    struct flow_info;
 }
 
 
@@ -36,6 +38,7 @@ namespace df
 #include "Export.h"
 #include "Module.h"
 #include "Types.h"
+
 
 namespace DFHack
 {
@@ -58,6 +61,9 @@ namespace DFHack
 
         void drawUnit(df::unit* u,screenTile& trg); 
         void drawPlant(df::plant* p,screenTile& trg); //not grass, only trees, bushes, saplings etc...
+        //void drawGrass(df::plant_raw* p,uint8_t amount,screenTile& trg);
+        //void drawSpatter(int32_t index,int16_t type,int16_t state,uint8_t amount,screenTile& trg);
         void drawItem(df::item* it,screenTile& trg); //item that is drawn like it would be lying on the ground
+        void drawFlow(df::flow_info* flow,screenTile& trg);
     };
 }
