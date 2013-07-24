@@ -88,9 +88,9 @@ DEFINE_LUA_EVENT_1(onDisconnect, handle_disconnect,int);
 
 DFHACK_PLUGIN_LUA_EVENTS {
     DFHACK_LUA_EVENT(onNewClient),
-        DFHACK_LUA_EVENT(onDataRecieved),
-        DFHACK_LUA_EVENT(onDisconnect),
-        DFHACK_LUA_END
+    DFHACK_LUA_EVENT(onDataRecieved),
+    DFHACK_LUA_EVENT(onDisconnect),
+    DFHACK_LUA_END
 };
 class Connection
 {
@@ -103,12 +103,13 @@ class Connection
         Connection* myself=static_cast<Connection*>(args);
         myself->run();
     }
+    
     void run()
     {
         while(alive)
         {
-            uint32_t pos=mysock->Receive(sizeof(uint32_t));
-            if(pos==0) //dropped connection
+            int pos=mysock->Receive(sizeof(uint32_t));
+            if(pos<=0)
             {
                 alive=false;
                 return;
@@ -122,14 +123,12 @@ class Connection
                 uint32_t csize=0;
                 while(csize<size)
                 {
-                    uint32_t ret=mysock->Receive(sizeof(uint32_t));
-                    if(ret==0)
+                    int ret=mysock->Receive(sizeof(uint32_t));
+                    if(ret<=0)
                     {
                         alive=false;
                          return;
                     }
-                    else if(ret==-1)
-                        break;
                     memcpy(cptr,mysock->GetData(),ret);
                     cptr+=ret;
                     csize+=ret;
@@ -169,7 +168,7 @@ public:
         int32* sizeB=reinterpret_cast<int32*>(bufn);
         *sizeB=htonl(size);
         memcpy(bufn+sizeof(int32),buf,size);
-        if(mysock->Send(bufn,size+sizeof(int32))==-1)
+        if(mysock->Send(bufn,size+sizeof(int32))!=size+sizeof(int32))
         {
             CoreSuspender suspend;
             color_ostream_proxy out(Core::getInstance().getConsole());
@@ -181,6 +180,11 @@ public:
     {
         mysock->Close();
         myThread->join();
+
+        CoreSuspender suspend;
+        color_ostream_proxy out(Core::getInstance().getConsole());
+        onDisconnect(out,myId);
+
         delete mysock;
         delete myThread;
     }
@@ -211,12 +215,22 @@ static void lua_sock_connect(std::string ip,int port)
     Connection *t=new Connection(sock,-1);
     clients[-1]=t;
     t->Start();
-    CoreSuspendClaimer suspend;
+    CoreSuspender suspend;
     color_ostream_proxy out(Core::getInstance().getConsole());
     onNewClient(out,-1);
 }
 static void lua_sock_disconnect(int id)
 {
+    if(id==-2 && server) //server shutdown
+    {
+        server->Close();
+        for(auto it=clients.begin();it!=clients.end();it++)
+        {
+            delete it->second;
+        }
+        clients.clear();
+        return;
+    }
     if(clients.find(id)!=clients.end())
     {
         clients[id]->Close();
@@ -237,6 +251,7 @@ static void lua_sock_send(int id,int32 size,uint8_t* buf)
 }
 DFHACK_PLUGIN_LUA_FUNCTIONS {
     DFHACK_LUA_FUNCTION(lua_sock_listen),
+    
     DFHACK_LUA_FUNCTION(lua_sock_connect),
     DFHACK_LUA_FUNCTION(lua_sock_disconnect),
     DFHACK_LUA_FUNCTION(lua_sock_send),
@@ -258,6 +273,7 @@ DFhackCExport command_result plugin_onupdate(color_ostream &out)
         {
             clients[last_id]=new Connection(sock,last_id);
             clients[last_id]->Start();
+            CoreSuspendClaimer claim;
             onNewClient(out,last_id);
             last_id++;
         }

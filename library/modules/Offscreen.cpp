@@ -179,7 +179,7 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
     MapExtras::MapCache cache;
     int w=window.second.x-window.first.x;
     int h=window.second.y-window.first.y;
-    rect2d localWindow=mkrect_wh(0,0,w,h);
+    rect2d localWindow=mkrect_wh(0,0,w+1,h+1);
     if(buffer.size()!=w*h)
         buffer.resize(w*h);
     //basic tiletype stuff here
@@ -262,7 +262,8 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
             {
                 if(shape==df::tiletype_shape::RAMP || shape==df::tiletype_shape::BROOK_BED || shape==df::tiletype_shape::RAMP_TOP)
                     curTile.tile=tilePics[tt];
-                colorTile(tileMat,cache,coord,curTile,true);
+                if(!inliquid)
+                    colorTile(tileMat,cache,coord,curTile,true);
             }
 
         }
@@ -286,7 +287,7 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                     }
                 }
                 std::vector<df::block_square_event*>& events=b->getRaw()->block_events;
-                for(size_t i=0;i<events.size();i++)
+                for(size_t i=0;i<events.size();i++)//maybe aggregate all the events to one array and move to a function.
                 {
                     df::block_square_event* e=events[i];
                     switch(e->getType())
@@ -333,10 +334,40 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                         }
                     case df::block_square_event_type::material_spatter:
                         {
+                            //liquid:
+                            //0 nothing 
+                            //1->49 color 
+                            //50->99 wave
+                            //100->255 two waves
+                            //color only, if small
+                            //draw waves, if pool
                             df::block_square_event_material_spatterst* spatter=static_cast<df::block_square_event_material_spatterst*>(e);
-                            //TODO
-                            //color only if small
-                            //draw waves if pool
+                            MaterialInfo mat(spatter);
+                            if(mat.material)
+                            {
+
+                            for(int x=0;x<16;x++)
+                                for(int y=0;y<16;y++)
+                                {
+                                    int wx=x+bx*16-window.first.x;
+                                    int wy=y+by*16-window.first.y;
+                                    uint8_t amount=spatter->amount[x][y];
+                                    if(isInRect(df::coord2d(wx,wy),localWindow) && amount>0)
+                                    {
+                                        screenTile& curTile=buffer[wx*h+wy];
+                                        
+                                        curTile.fg=mat.material->tile_color[0];
+                                        curTile.bold=mat.material->tile_color[2];
+                                        if(spatter->mat_state==df::matter_state::Liquid && amount>49)
+                                        {
+                                            if(amount>99)
+                                                curTile.tile=247;
+                                            else
+                                                curTile.tile=126;
+                                        }
+                                    }
+                                }
+                            }
                             break;
                         }
                     default:;
@@ -346,8 +377,8 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                 for(size_t i=0;i<flows.size();i++)
                 {
                     df::flow_info* f=flows[i];
-                    int wx=f->pos.x+bx*16-window.first.x;
-                    int wy=f->pos.y+by*16-window.first.y;
+                    int wx=f->pos.x-window.first.x;
+                    int wy=f->pos.y-window.first.y;
                     if(f->density>0 && isInRect(df::coord2d(wx,wy),localWindow))
                     {
                         screenTile& curTile=buffer[wx*h+wy];
@@ -356,6 +387,7 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                 }
             }
             //in df items blink between stuff, but i don't have time for that
+            //also move up, before flows
             std::vector<df::item*>& items=df::global::world->items.other[df::items_other_id::IN_PLAY];
             for(int i=0;i<items.size();i++)
             {
@@ -420,7 +452,7 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
                     drawUnit(u,curTile);
                 }
             }
-            //TODO blood and flows
+            
 }
 bool isMilitary(df::unit *u)
 {
@@ -435,12 +467,15 @@ void Offscreen::drawUnit( df::unit* u,screenTile& trg )
     {
         //u->flags2.bits.swimming -> special swiming stuff?
         //u->flags3.bits.ghostly -> ghostly stuff
+        //grapling
+        //onground
+        //sleeping ->blink?
         if(soldier)
             trg.tile=cr->creature_soldier_tile;
         else
             trg.tile=cr->creature_tile;
         
-        trg.fg=Units::getProfessionColor(u);
+        trg.fg=Units::getProfessionColor(u);//do this only for those who have profesions?
         trg.bg=cr->color[1];
         trg.bold=cr->color[2];
         //TODO glowtiles ,BLINKING
@@ -449,14 +484,14 @@ void Offscreen::drawUnit( df::unit* u,screenTile& trg )
         {
             df::caste_raw* casteRaw=cr->caste[u->caste];
             //trg.tile=casteRaw->caste_soldier_tile;
-            if(casteRaw->flags.bits[df::caste_raw_flags::CASTE_TILE])
+            if(!casteRaw->flags.bits[df::caste_raw_flags::CASTE_TILE])
             {
                 if(soldier)
                     trg.tile=casteRaw->caste_soldier_tile;
                 else
                     trg.tile=casteRaw->caste_tile;
             }
-            if(casteRaw->flags.bits[df::caste_raw_flags::CASTE_COLOR])
+            if(!casteRaw->flags.bits[df::caste_raw_flags::CASTE_COLOR])
             {
                 trg.fg=Units::getProfessionColor(u);
                 trg.bg=casteRaw->caste_color[1];
@@ -514,6 +549,7 @@ void Offscreen::drawItem( df::item* it,screenTile& trg )
 
 void DFHack::Offscreen::drawFlow( df::flow_info* flow,screenTile& trg )
 {
+    const int tilesFlow[]={176,177,178,219}; //configure?
     //dragonfire and fire turns yellow at 50%
     //webs, sea foam, ocean waves are special
     //else different tile each 25 till 100
@@ -521,20 +557,23 @@ void DFHack::Offscreen::drawFlow( df::flow_info* flow,screenTile& trg )
     //TODO sea foam, waves, materials
     if(flow->density==0)
         return;
-    int d=flow->density/25+1;
-    if(d>4)
-        d=4;
-    int tile=176+d; //TODO constant or configure...
+    int d=flow->density/25;
+    if(d>3)
+        d=3;
+    int tile=tilesFlow[d];
     trg.tile=tile;
     switch(flow->type)
     {
+    case df::flow_type::Miasma:
+        trg.fg=5;//purple
+        break;
     case df::flow_type::Dragonfire:
     case df::flow_type::Fire:
         {
             trg.fg=COLOR_RED;
-            if(d>2)
-                trg.fg=COLOR_YELLOW;
             if(d>1)
+                trg.fg=COLOR_YELLOW;
+            if(d>0)
                 trg.bold=true;
             return;
         }
