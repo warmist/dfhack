@@ -7,6 +7,7 @@ local args={...}
 local keybindings={
     offset={key="CUSTOM_ALT_O",desc="Show current items offset"},
     find={key="CUSTOM_F",desc="Find a value by entering a predicate"},
+	filter={key="CUSTOM_X",desc="Filter entries by entering a predicate"},
     lua_set={key="CUSTOM_ALT_S",desc="Set by using a lua function"},
     insert={key="CUSTOM_ALT_I",desc="Insert a new value to the vector"},
     delete={key="CUSTOM_ALT_D",desc="Delete selected entry"},
@@ -89,6 +90,23 @@ function GmEditorUi:init(args)
         pages
     }
     self:pushTarget(args.target)
+end
+function GmEditorUi:filter(test)
+	local trg=self:currentTarget() 
+    if test== nil then
+        dialog.showInputPrompt("Test function","Input function that tests(k,v as argument):",COLOR_WHITE,"",dfhack.curry(self.filter,self))
+        return
+    end
+	if test=="" then
+		self.filterFunction=nil
+	else
+		local e,what=load("return function(k,v) return "..test.." end")
+		if e==nil then
+			dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
+		end
+		self.filterFunction=e()
+	end
+	self:updateTarget(false,true)
 end
 function GmEditorUi:find(test)
     local trg=self:currentTarget() 
@@ -218,7 +236,8 @@ function GmEditorUi:onInput(keys)
         local _,stoff=df.sizeof(trg.target)
         local size,off=df.sizeof(trg.target:_field(self:getSelectedKey()))
         dialog.showMessage("Offset",string.format("Size hex=%x,%x dec=%d,%d\nRelative hex=%x dec=%d",size,off,size,off,off-stoff,off-stoff),COLOR_WHITE)
-    --elseif keys.CUSTOM_ALT_F then --filter?
+    elseif keys[keybindings.filter.key] then
+		self:filter()
     elseif keys[keybindings.find.key] then
         self:find()
     elseif keys[keybindings.lua_set.key] then
@@ -238,13 +257,15 @@ function GmEditorUi:updateTarget(preserve_pos,reindex)
     if reindex then
         trg.keys={}
         for k,v in pairs(trg.target) do
-            table.insert(trg.keys,k)
+			if self.filterFunction==nil or self.filterFunction(k,trg.target[k]) then
+				table.insert(trg.keys,k)
+			end
         end
     end
     self.subviews.lbl_current_item:itemById('name').text=tostring(trg.target)
     local t={}
     for k,v in pairs(trg.keys) do
-        table.insert(t,{text={{text=string.format("%-25s",tostring(v))},{gap=1,text=tostring(trg.target[v]),}}})
+			table.insert(t,{text={{text=string.format("%-25s",tostring(v))},{gap=1,text=tostring(trg.target[v]),}}})
     end
     local last_pos
     if preserve_pos then
