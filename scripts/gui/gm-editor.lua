@@ -141,25 +141,31 @@ function GmEditorUi:find()
 		end
 	end)
 end
-function GmEditorUi:insertNew(typename)
-    local tp=typename
-    if typename== nil then
-        dialog.showInputPrompt("Class type","Input class type:",COLOR_WHITE,"",self:callback("insertNew"))
-        return
-    end
-    local ntype=df[tp]
-    if ntype== nil then
-        dialog.showMessage("Error!","Type '"..tp.." not found",COLOR_RED)
-        return
-    end
-    
-    local trg=self:currentTarget() 
-    if trg.target and trg.target._kind and trg.target._kind=="container" then
-        local thing=ntype:new()
-        dfhack.call_with_finalizer(1,false,df.delete,thing,function (tscreen,target,to_insert)
-            target:insert("#",to_insert); tscreen:updateTarget(true,true);end,self,trg.target,thing)
-        
-    end
+function GmEditorUi:insertNew()
+	guiScript.start(function()
+		local ret,input=guiScript.showInputPrompt("Class type","Input class type (empty, for numeric types):",COLOR_WHITE,"")
+		if ret then
+			if input~="" then
+				local tp=input
+				local ntype=df[tp]
+				if ntype== nil then
+					dialog.showMessage("Error!","Type '"..tp.." not found",COLOR_RED)
+					return
+				end
+		
+				local trg=self:currentTarget() 
+				if trg.target and trg.target._kind and trg.target._kind=="container" then
+					local thing=ntype:new()
+					dfhack.call_with_finalizer(1,false,df.delete,thing,function (tscreen,target,to_insert)
+						target:insert("#",to_insert); tscreen:updateTarget(true,true);end,self,trg.target,thing)
+				end
+				
+			else
+				self:currentTarget().target:insert("#",0)
+				self:updateTarget(true,true)
+			end
+		end
+	end)
 end
 function GmEditorUi:deleteSelected(key)
     local trg=self:currentTarget()
