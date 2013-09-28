@@ -204,6 +204,7 @@ addMaterial("PLANT:CAVE MOSS",nil,{0.1,0.1,0.4},2)
 addMaterial("PLANT:MUSHROOM_HELMET_PLUMP",nil,{0.2,0.1,0.6},2)
 --		inorganics
 addMaterial("INORGANIC:ADAMANTINE",{0.1,0.3,0.3},{0.1,0.3,0.3},4)
+addMaterial("INORGANIC:RAW_ADAMANTINE",{0.1,0.3,0.3},{0.1,0.3,0.3},4)
 --		creature stuff
 addMaterial("CREATURE:DRAGON:BLOOD",nil,{0.6,0.1,0.1},4)
 addGems()
@@ -217,6 +218,6 @@ addBuilding("Floodgate",nil,nil,0,{"useMaterial"}) -- special case, only closed 
 --creatures
 addCreature("ELEMENTMAN_MAGMA",{0.8,0.2,0.2},{0.8,0.2,0.2},5)
 --items
-addItem("GEM",nil,nil,{"useMaterial","onGround"})
-addItem("ROUGH",nil,nil,{"useMaterial","onGround"})
-addItem("SMALLGEM",nil,nil,{"useMaterial","onGround"})
+addItem("GEM",nil,nil,0,{"useMaterial","onGround"})
+addItem("ROUGH",nil,nil,0,{"useMaterial","onGround"})
+addItem("SMALLGEM",nil,nil,0,{"useMaterial","onGround"})
