@@ -2,6 +2,7 @@
 local gui = require 'gui'
 local dialog = require 'gui.dialogs'
 local widgets =require 'gui.widgets'
+local guiScript= require 'gui.script'
 local args={...}
 
 local keybindings={
@@ -91,54 +92,54 @@ function GmEditorUi:init(args)
     }
     self:pushTarget(args.target)
 end
-function GmEditorUi:filter(test)
+function GmEditorUi:filter()
 	local trg=self:currentTarget() 
-    if test== nil then
-        dialog.showInputPrompt("Test function","Input function that tests(k,v as argument):",COLOR_WHITE,"",dfhack.curry(self.filter,self))
-        return
-    end
-	if test=="" then
-		self.filterFunction=nil
-	else
-		local e,what=load("return function(k,v) return "..test.." end")
-		if e==nil then
-			dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
+	guiScript.start(function()
+		local ret,input=guiScript.showInputPrompt("Test function","Input function that tests(k,v as argument):",COLOR_WHITE,"")
+		if ret then
+			if input=="" then
+				self.filterFunction=nil
+			else
+				local e,what=load("return function(k,v) return "..input.." end")
+				if e==nil then
+					dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
+				end
+				self.filterFunction=e()
+			end
+			self:updateTarget(false,true)
 		end
-		self.filterFunction=e()
-	end
-	self:updateTarget(false,true)
+	end)
 end
-function GmEditorUi:find(test)
+function GmEditorUi:find()
     local trg=self:currentTarget() 
-    
-    if test== nil then
-        dialog.showInputPrompt("Test function","Input function that tests(k,v as argument):",COLOR_WHITE,"",dfhack.curry(self.find,self))
-        return
-    end
-    
-    local e,what=load("return function(k,v) return "..test.." end")
-    if e==nil then
-        dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
-    end
-        
-    if trg.target and trg.target._kind and trg.target._kind=="container" then
-        
-        for k,v in pairs(trg.target) do
-            if e()(k,v)==true then
-                self:pushTarget(v)
-                return
-            end
-        end
-    else
-        local i=1
-        for k,v in pairs(trg.target) do
-            if e()(k,v)==true then
-                self.subviews.list_main:setSelected(i)
-                return
-            end
-            i=i+1
-        end
-    end
+    guiScript.start(function()
+		local ret,input=guiScript.showInputPrompt("Test function","Input function that tests(k,v as argument):",COLOR_WHITE,"")
+		if ret then
+			local e,what=load("return function(k,v) return "..input.." end")
+			if e==nil then
+				dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
+			end
+			if trg.target and trg.target._kind and trg.target._kind=="container" then
+				for k,v in pairs(trg.target) do
+					if e()(k,v)==true then
+						self:pushTarget(v)
+						return
+					end
+				end
+				dialog.showMessage("Failure","Element not found",COLOR_RED)
+			else
+				local i=1
+				for k,v in pairs(trg.target) do
+					if e()(k,v)==true then
+						self.subviews.list_main:setSelected(i)
+						return
+					end
+					i=i+1
+				end
+				dialog.showMessage("Failure","Element not found",COLOR_RED)
+			end
+		end
+	end)
 end
 function GmEditorUi:insertNew(typename)
     local tp=typename
@@ -208,20 +209,20 @@ function GmEditorUi:commitEdit(key,value)
     self:updateTarget(true)
 end
 
-function GmEditorUi:set(key,input)
+function GmEditorUi:set(key)
     local trg=self:currentTarget() 
-    
-    if input== nil then
-        dialog.showInputPrompt("Set to what?","Lua code to set to (v cur target):",COLOR_WHITE,"",self:callback("set",key))
-        return
-    end
-    local e,what=load("return function(v) return "..input.." end")
-    if e==nil then
-        dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
-        return
-    end
-    trg.target[key]=e()(trg)
-    self:updateTarget(true)
+	guiScript.start(function()
+		local ret,input=guiScript.showInputPrompt("Set to what?","Lua code to set to (value=<input>)",COLOR_WHITE,"")
+		if ret then
+			local e,what=load("return function (_trg,_key) _trg.target[_key]="..input.." end")
+			if e==nil then
+				dialog.showMessage("Error!","function failed to compile\n"..what,COLOR_RED)
+				return
+			end
+			e()(trg,key)
+			self:updateTarget(true)
+		end
+	end)
 end
 function GmEditorUi:onInput(keys)
     
