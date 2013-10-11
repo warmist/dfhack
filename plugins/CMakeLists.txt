@@ -158,6 +158,7 @@ if (BUILD_SUPPORTED)
     DFHACK_PLUGIN(stocks stocks.cpp)
     DFHACK_PLUGIN(cleanconst cleanconst.cpp)
 	DFHACK_PLUGIN(offscreen offscreen.cpp LINK_LIBRARIES lua)
+	DFHACK_PLUGIN(questHooks questHooks.cpp LINK_LIBRARIES lua)
 endif()
 
 
