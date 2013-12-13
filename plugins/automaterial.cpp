@@ -36,6 +36,7 @@
 #include "TileTypes.h"
 #include "df/job_item.h"
 
+using namespace std;
 using std::map;
 using std::string;
 using std::vector;
@@ -506,7 +507,6 @@ static bool is_valid_building_site(building_site &site, bool orthogonal_check, b
     return Buildings::checkFreeTiles(site.pos, size, NULL, false, false);
 }
 
-
 static bool find_anchor_in_spiral(const df::coord &start)
 {
     bool found = false;
@@ -734,7 +734,7 @@ struct jobutils_hook : public df::viewscreen_dwarfmodest
             MaterialDescriptor material = get_material_in_list(ui_build_selector->sel_index);
             if (material.valid)
             {
-                if (input->count(interface_key::SELECT) || input->count(interface_key::SEC_SELECT))
+                if (input->count(interface_key::SELECT) || input->count(interface_key::SELECT_ALL))
                 {
                     if (get_last_moved_material().matches(material))
                         last_used_moved = false; //Keep selected material on top
@@ -748,7 +748,7 @@ struct jobutils_hook : public df::viewscreen_dwarfmodest
                         gen_material.push_back(get_material_in_list(curr_index));
                         box_select_materials.clear();
                         // Populate material list with selected material
-                        populate_box_materials(gen_material, ((input->count(interface_key::SEC_SELECT) && ui_build_selector->is_grouped) ? -1 : 1));
+                        populate_box_materials(gen_material, ((input->count(interface_key::SELECT_ALL) && ui_build_selector->is_grouped) ? -1 : 1));
 
                         input->clear(); // Let the apply_box_selection routine allocate the construction
                         input->insert(interface_key::LEAVESCREEN);
@@ -1175,15 +1175,30 @@ struct jobutils_hook : public df::viewscreen_dwarfmodest
 
 color_ostream_proxy console_out(Core::getInstance().getConsole());
 
-
 IMPLEMENT_VMETHOD_INTERPOSE(jobutils_hook, feed);
 IMPLEMENT_VMETHOD_INTERPOSE(jobutils_hook, render);
 
+DFHACK_PLUGIN_IS_ENABLED(is_enabled);
+
+DFhackCExport command_result plugin_enable ( color_ostream &out, bool enable)
+{
+    if (!gps)
+        return CR_FAILURE;
+
+    if (enable != is_enabled)
+    {
+        if (!INTERPOSE_HOOK(jobutils_hook, feed).apply(enable) ||
+            !INTERPOSE_HOOK(jobutils_hook, render).apply(enable))
+            return CR_FAILURE;
+
+        is_enabled = enable;
+    }
+
+    return CR_OK;
+}
+
 DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <PluginCommand> &commands)
 {
-    if (!gps || !INTERPOSE_HOOK(jobutils_hook, feed).apply() || !INTERPOSE_HOOK(jobutils_hook, render).apply())
-        out.printerr("Could not insert jobutils hooks!\n");
-
     hotkeys[construction_type::Wall] = df::interface_key::HOTKEY_BUILDING_CONSTRUCTION_WALL;
     hotkeys[construction_type::Floor] = df::interface_key::HOTKEY_BUILDING_CONSTRUCTION_FLOOR;
     hotkeys[construction_type::Ramp] = df::interface_key::HOTKEY_BUILDING_CONSTRUCTION_RAMP;

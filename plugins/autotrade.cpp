@@ -6,6 +6,7 @@
 #include "df/world_raws.h"
 #include "df/building_def.h"
 #include "df/viewscreen_dwarfmodest.h"
+#include "df/viewscreen_tradegoodsst.h"
 #include "df/building_stockpilest.h"
 #include "modules/Items.h"
 #include "df/building_tradedepotst.h"
@@ -570,6 +571,73 @@ struct trade_hook : public df::viewscreen_dwarfmodest
 IMPLEMENT_VMETHOD_INTERPOSE(trade_hook, feed);
 IMPLEMENT_VMETHOD_INTERPOSE(trade_hook, render);
 
+struct tradeview_hook : public df::viewscreen_tradegoodsst
+{
+    typedef df::viewscreen_tradegoodsst interpose_base;
+
+    bool handleInput(set<df::interface_key> *input)
+    {
+        if (input->count(interface_key::CUSTOM_M))
+        {
+            for (int i = 0; i < trader_selected.size(); i++)
+            {
+                trader_selected[i] = 1;
+            }
+        }
+        else if (input->count(interface_key::CUSTOM_U))
+        {
+            for (int i = 0; i < trader_selected.size(); i++)
+            {
+                trader_selected[i] = 0;
+            }
+        }
+        else if (input->count(interface_key::CUSTOM_SHIFT_M))
+        {
+            for (int i = 0; i < broker_selected.size(); i++)
+            {
+                broker_selected[i] = 1;
+            }
+        }
+        else if (input->count(interface_key::CUSTOM_SHIFT_U))
+        {
+            for (int i = 0; i < broker_selected.size(); i++)
+            {
+                broker_selected[i] = 0;
+            }
+        }
+        else
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    DEFINE_VMETHOD_INTERPOSE(void, feed, (set<df::interface_key> *input))
+    {
+        if (!handleInput(input))
+            INTERPOSE_NEXT(feed)(input);
+    }
+
+    DEFINE_VMETHOD_INTERPOSE(void, render, ())
+    {
+        INTERPOSE_NEXT(render)();
+        int x = 2;
+        int y = 27;
+        OutputHotkeyString(x, y, "Mark all", "m", true, 2);
+        OutputHotkeyString(x, y, "Unmark all", "u");
+
+        x = 42;
+        y = 27;
+        OutputHotkeyString(x, y, "Mark all", "Shift-m", true, 42);
+        OutputHotkeyString(x, y, "Unmark all", "Shift-u");
+    }
+};
+
+IMPLEMENT_VMETHOD_INTERPOSE(tradeview_hook, feed);
+IMPLEMENT_VMETHOD_INTERPOSE(tradeview_hook, render);
+
+
 static command_result autotrade_cmd(color_ostream &out, vector <string> & parameters)
 {
     if (!parameters.empty())
@@ -582,7 +650,6 @@ static command_result autotrade_cmd(color_ostream &out, vector <string> & parame
 
     return CR_OK;
 }
-
 
 DFhackCExport command_result plugin_onstatechange(color_ostream &out, state_change_event event)
 {
@@ -600,15 +667,41 @@ DFhackCExport command_result plugin_onstatechange(color_ostream &out, state_chan
     return CR_OK;
 }
 
+DFHACK_PLUGIN_IS_ENABLED(is_enabled);
+
+DFhackCExport command_result plugin_enable(color_ostream &out, bool enable)
+{
+    if (!gps)
+        return CR_FAILURE;
+
+    if (enable != is_enabled)
+    {
+        depot_info.reset();
+        monitor.reset();
+
+        if (!INTERPOSE_HOOK(trade_hook, feed).apply(enable) ||
+            !INTERPOSE_HOOK(trade_hook, render).apply(enable) ||
+			!INTERPOSE_HOOK(tradeview_hook, feed).apply(enable) ||
+			!INTERPOSE_HOOK(tradeview_hook, render).apply(enable) )
+            return CR_FAILURE;
+
+        is_enabled = enable;
+    }
+
+    return CR_OK;
+}
+
 DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <PluginCommand> &commands)
 {
-    if (!gps || !INTERPOSE_HOOK(trade_hook, feed).apply() || !INTERPOSE_HOOK(trade_hook, render).apply())
+    if (!gps 
+        || !INTERPOSE_HOOK(trade_hook, feed).apply() || !INTERPOSE_HOOK(trade_hook, render).apply()
+        || !INTERPOSE_HOOK(tradeview_hook, feed).apply() || !INTERPOSE_HOOK(tradeview_hook, render).apply())
         out.printerr("Could not insert autotrade hooks!\n");
 
     commands.push_back(
         PluginCommand(
         "autotrade", "Automatically send items in marked stockpiles to trade depot, when trading is possible.",
-        autotrade_cmd, false, ""));
+        autotrade_cmd, false, "Run 'autotrade version' to query the plugin version."));
 
     return CR_OK;
 }

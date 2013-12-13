@@ -46,13 +46,19 @@ DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <Plug
 {
     commands.push_back(PluginCommand("probe",
                                      "A tile probe",
-                                     df_probe));
+                                     df_probe,
+                                     false,
+                                     "Hover the cursor over a tile to view its properties.\n"));
     commands.push_back(PluginCommand("cprobe",
                                      "A creature probe",
-                                     df_cprobe));
+                                     df_cprobe,
+                                     false,
+                                     "Select a creature to view its properties.\n"));
     commands.push_back(PluginCommand("bprobe",
                                      "A simple building probe",
-                                     df_bprobe));
+                                     df_bprobe,
+                                     false,
+                                     "Select a building to view its properties.\n"));
     return CR_OK;
 }
 
@@ -263,6 +269,9 @@ command_result df_probe (color_ostream &out, vector <string> & parameters)
             out << " / " << inorganic[vein_rock].id
                 << " / "
                 << inorganic[vein_rock].name
+                << " ("
+                << ENUM_KEY_STR(inclusion_type,b->veinTypeAt(cursor))
+                << ")"
                 << endl;
         else
             out << endl;

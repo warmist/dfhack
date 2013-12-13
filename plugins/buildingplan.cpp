@@ -38,7 +38,7 @@ using df::global::ui_build_selector;
 using df::global::world;
 
 DFHACK_PLUGIN("buildingplan");
-#define PLUGIN_VERSION 0.9
+#define PLUGIN_VERSION 0.11
 
 struct MaterialDescriptor
 {
@@ -78,6 +78,7 @@ DFhackCExport command_result plugin_shutdown ( color_ostream &out )
 #define SIDEBAR_WIDTH 30
 
 static bool show_debugging = false;
+static bool show_help = false;
 
 static void debug(const string &msg)
 {
@@ -91,6 +92,8 @@ static void debug(const string &msg)
 /*
  * Material Choice Screen
  */
+
+static string material_to_string_fn(MaterialInfo m) { return m.toString(); }
 
 struct ItemFilter
 {
@@ -114,8 +117,10 @@ struct ItemFilter
 
     bool matches(MaterialInfo &material) const
     {
-        return any_of(materials.begin(), materials.end(), 
-            [&] (const MaterialInfo &m) { return material.matches(m); });
+        for (auto it = materials.begin(); it != materials.end(); ++it)
+            if (material.matches(*it))
+                return true;
+        return false;
     }
 
     bool matches(df::item *item)
@@ -137,8 +142,7 @@ struct ItemFilter
     {
         vector<string> descriptions;
 
-        transform_(materials, descriptions,
-            [] (MaterialInfo m) { return m.toString(); });
+        transform_(materials, descriptions, material_to_string_fn);
 
         if (descriptions.size() == 0)
             bitfield_to_string(&descriptions, mat_mask);
@@ -157,8 +161,8 @@ struct ItemFilter
         str.append("/");
         if (materials.size() > 0)
         {
-            for_each_(materials,
-                [&] (MaterialInfo &m) { str.append(m.getToken() + ","); });
+            for (size_t i = 0; i < materials.size(); i++)
+                str.append(materials[i].getToken() + ",");
 
             if (str[str.size()-1] == ',')
                 str.resize(str.size () - 1);
@@ -217,6 +221,7 @@ private:
     bool valid;
 };
 
+static MaterialInfo &material_info_identity_fn(MaterialInfo &m) { return m; }
 
 class ViewscreenChooseMaterial : public dfhack_viewscreen
 {
@@ -284,13 +289,12 @@ public:
 
             // Category masks
             auto masks = masks_column.getSelectedElems();
-            for_each_(masks,
-                [&] (df::dfhack_material_category &m) { filter->mat_mask.whole |= m.whole; });
+            for (auto it = masks.begin(); it != masks.end(); ++it)
+                filter->mat_mask.whole |= it->whole;
 
             // Specific materials
             auto materials = materials_column.getSelectedElems();
-            transform_(materials, filter->materials,
-                [] (MaterialInfo &m) { return m; });
+            transform_(materials, filter->materials, material_info_identity_fn);
 
             Screen::dismiss(this);
         }
@@ -465,6 +469,7 @@ private:
     }
 };
 
+static void delete_item_fn(df::job_item *x) { delete x; }
 
 // START Planning 
 class PlannedBuilding
@@ -555,7 +560,7 @@ public:
         
         auto job = building->jobs[0];
 
-        for_each_(job->job_items, [] (df::job_item *x) { delete x; });
+        for_each_(job->job_items, delete_item_fn);
         job->job_items.clear();
         job->flags.bits.suspend = false;
 
@@ -613,8 +618,9 @@ private:
     ItemFilter filter;
 };
 
-
 static map<df::building_type, bool> planmode_enabled, saved_planmodes;
+
+static void enable_quickfort_fn(pair<const df::building_type, bool>& pair) { pair.second = true; }
 
 class Planner
 {
@@ -804,8 +810,7 @@ public:
     void enableQuickfortMode()
     {
         saved_planmodes = planmode_enabled;
-        for_each_(planmode_enabled, 
-            [] (pair<const df::building_type, bool>& pair) { pair.second = true; } );
+        for_each_(planmode_enabled, enable_quickfort_fn);
 
         quickfort_mode = true;
     }
@@ -939,7 +944,7 @@ struct buildingplan_hook : public df::viewscreen_dwarfmodest
         if (isInPlannedBuildingPlacementMode())
         {
             auto type = ui_build_selector->building_type;
-            if (input->count(interface_key::CUSTOM_P))
+            if (input->count(interface_key::CUSTOM_SHIFT_P))
             {
                 planmode_enabled[type] = !planmode_enabled[type];
                 if (!planmode_enabled[type])
@@ -949,6 +954,10 @@ struct buildingplan_hook : public df::viewscreen_dwarfmodest
                     planner.in_dummmy_screen = false;
                 }
                 return true;
+            }
+            else if (input->count(interface_key::CUSTOM_P))
+            {
+                show_help = true;
             }
             
             if (is_planmode_enabled(type))
@@ -979,7 +988,7 @@ struct buildingplan_hook : public df::viewscreen_dwarfmodest
 
                     return true;
                 }
-                else if (input->count(interface_key::CUSTOM_F))
+                else if (input->count(interface_key::CUSTOM_SHIFT_F))
                 {
                     if (!planner.inQuickFortMode())
                     {
@@ -990,15 +999,15 @@ struct buildingplan_hook : public df::viewscreen_dwarfmodest
                         planner.disableQuickfortMode();
                     }
                 }
-                else if (input->count(interface_key::CUSTOM_M))
+                else if (input->count(interface_key::CUSTOM_SHIFT_M))
                 {
                     Screen::show(new ViewscreenChooseMaterial(planner.getDefaultItemFilterForType(type)));
                 }
-                else if (input->count(interface_key::CUSTOM_Q))
+                else if (input->count(interface_key::CUSTOM_SHIFT_Q))
                 {
                     planner.cycleDefaultQuality(type);
                 }
-                else if (input->count(interface_key::CUSTOM_D))
+                else if (input->count(interface_key::CUSTOM_SHIFT_D))
                 {
                     planner.getDefaultItemFilterForType(type)->decorated_only =
                         !planner.getDefaultItemFilterForType(type)->decorated_only;
@@ -1076,25 +1085,30 @@ struct buildingplan_hook : public df::viewscreen_dwarfmodest
             {
                 int y = 23;
 
-                OutputToggleString(x, y, "Planning Mode", "p", is_planmode_enabled(type), true, left_margin);
+                if (show_help)
+                {
+                    OutputString(COLOR_BROWN, x, y, "Note: ");
+                    OutputString(COLOR_WHITE, x, y, "Use Shift-Keys here", true, left_margin);
+                }
+                OutputToggleString(x, y, "Planning Mode", "P", is_planmode_enabled(type), true, left_margin);
 
                 if (is_planmode_enabled(type))
                 {
-                    OutputToggleString(x, y, "Quickfort Mode", "f", planner.inQuickFortMode(), true, left_margin);
+                    OutputToggleString(x, y, "Quickfort Mode", "F", planner.inQuickFortMode(), true, left_margin);
 
                     auto filter = planner.getDefaultItemFilterForType(type);
 
-                    OutputHotkeyString(x, y, "Min Quality: ", "q");
+                    OutputHotkeyString(x, y, "Min Quality: ", "Q");
                     OutputString(COLOR_BROWN, x, y, filter->getMinQuality(), true, left_margin);
 
-                    OutputHotkeyString(x, y, "Decorated Only: ", "d");
+                    OutputHotkeyString(x, y, "Decorated Only: ", "D");
                     OutputString(COLOR_BROWN, x, y, 
                         (filter->decorated_only) ? "Yes" : "No", true, left_margin);
 
-                    OutputHotkeyString(x, y, "Material Filter:", "m", true, left_margin);
+                    OutputHotkeyString(x, y, "Material Filter:", "M", true, left_margin);
                     auto filter_descriptions = filter->getMaterialFilterAsVector();
-                    for_each_(filter_descriptions, 
-                        [&](string d) { OutputString(COLOR_BROWN, x, y, "   *" + d, true, left_margin); });
+                    for (auto it = filter_descriptions.begin(); it != filter_descriptions.end(); ++it)
+                        OutputString(COLOR_BROWN, x, y, "   *" + *it, true, left_margin);
                 }
                 else
                 {
@@ -1121,8 +1135,8 @@ struct buildingplan_hook : public df::viewscreen_dwarfmodest
 
             OutputString(COLOR_BROWN, x, y, "Materials:", true, left_margin);
             auto filters = filter->getMaterialFilterAsVector();
-            for_each_(filters,
-                [&](string d) { OutputString(COLOR_BLUE, x, y, "*" + d, true, left_margin); });
+            for (auto it = filters.begin(); it != filters.end(); ++it)
+                OutputString(COLOR_BLUE, x, y, "*" + *it, true, left_margin);
         }
         else
         {
@@ -1153,16 +1167,33 @@ static command_result buildingplan_cmd(color_ostream &out, vector <string> & par
     return CR_OK;
 }
 
+DFHACK_PLUGIN_IS_ENABLED(is_enabled);
+
+DFhackCExport command_result plugin_enable(color_ostream &out, bool enable)
+{
+    if (!gps)
+        return CR_FAILURE;
+
+    if (enable != is_enabled)
+    {
+        planner.reset(out);
+
+        if (!INTERPOSE_HOOK(buildingplan_hook, feed).apply(enable) ||
+            !INTERPOSE_HOOK(buildingplan_hook, render).apply(enable))
+            return CR_FAILURE;
+
+        is_enabled = enable;
+    }
+
+    return CR_OK;
+}
 
 DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <PluginCommand> &commands)
 {
-    if (!gps || !INTERPOSE_HOOK(buildingplan_hook, feed).apply() || !INTERPOSE_HOOK(buildingplan_hook, render).apply())
-        out.printerr("Could not insert buildingplan hooks!\n");
-
     commands.push_back(
         PluginCommand(
         "buildingplan", "Place furniture before it's built",
-        buildingplan_cmd, false, ""));
+        buildingplan_cmd, false, "Run 'buildingplan debug [on|off]' to toggle debugging, or 'buildingplan version' to query the plugin version."));
     planner.initialize();
 
     return CR_OK;

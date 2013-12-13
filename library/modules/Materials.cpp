@@ -190,6 +190,13 @@ bool MaterialInfo::find(const std::vector<std::string> &items)
     }
     else if (items.size() == 2)
     {
+        if (items[0] == "COAL" && findBuiltin(items[0])) {
+            if (items[1] == "COKE")
+                this->index = 0;
+            else if (items[1] == "CHARCOAL")
+                this->index = 1;
+            return true;
+        }
         if (items[1] == "NONE" && findBuiltin(items[0]))
             return true;
         if (findPlant(items[0], items[1]))
@@ -557,6 +564,25 @@ bool DFHack::parseJobMaterialCategory(df::dfhack_material_category *cat, const s
         if (!set_bitfield_field(cat, items[i], 1))
             return false;
     }
+
+    return true;
+}
+
+bool DFHack::isSoilInorganic(int material)
+{
+    auto raw = df::inorganic_raw::find(material);
+
+    return raw && raw->flags.is_set(inorganic_flags::SOIL_ANY);
+}
+
+bool DFHack::isStoneInorganic(int material)
+{
+    auto raw = df::inorganic_raw::find(material);
+
+    if (!raw ||
+        raw->flags.is_set(inorganic_flags::SOIL_ANY) ||
+        raw->material.flags.is_set(material_flags::IS_METAL))
+        return false;
 
     return true;
 }

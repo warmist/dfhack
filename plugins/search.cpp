@@ -11,6 +11,7 @@
 #include "df/viewscreen_layer_stockpilest.h"
 #include "df/viewscreen_layer_militaryst.h"
 #include "df/viewscreen_layer_noblelistst.h"
+#include "df/viewscreen_layer_workshop_profilest.h"
 #include "df/viewscreen_tradegoodsst.h"
 #include "df/viewscreen_unitlistst.h"
 #include "df/viewscreen_buildinglistst.h"
@@ -28,6 +29,7 @@
 #include "df/misc_trait_type.h"
 #include "df/unit_misc_trait.h"
 
+using namespace std;
 using std::set;
 using std::vector;
 using std::string;
@@ -422,7 +424,7 @@ protected:
     virtual bool can_init(S *screen)
     {
         auto list = getLayerList(screen);
-        if (!is_list_valid(screen) || !list->active)
+        if (!is_list_valid(screen) || !list || !list->active)
             return false;
 
         return true;
@@ -698,8 +700,8 @@ template <class T, class V, int D> V generic_search_hook<T, V, D> ::module;
 
 #define IMPLEMENT_HOOKS_PRIO(screen, module, prio) \
     typedef generic_search_hook<screen, module> module##_hook; \
-    template<> IMPLEMENT_VMETHOD_INTERPOSE_PRIO(module##_hook, feed, 100); \
-    template<> IMPLEMENT_VMETHOD_INTERPOSE_PRIO(module##_hook, render, 100)
+    template<> IMPLEMENT_VMETHOD_INTERPOSE_PRIO(module##_hook, feed, prio); \
+    template<> IMPLEMENT_VMETHOD_INTERPOSE_PRIO(module##_hook, render, prio)
 
 //
 // END: Generic Search functionality
@@ -919,7 +921,7 @@ private:
 };
 
 
-IMPLEMENT_HOOKS(df::viewscreen_storesst, stocks_search);
+IMPLEMENT_HOOKS_PRIO(df::viewscreen_storesst, stocks_search, 100);
 
 //
 // END: Stocks screen search
@@ -1047,7 +1049,9 @@ private:
         {
             // Block the keys if were searching
             if (!search_string.empty())
+            {
                 input->clear();
+            }
 
             return false;
         }
@@ -1080,6 +1084,9 @@ public:
         {
             make_text_dim(2, 37, 22);
             make_text_dim(42, gps->dimx-2, 22);
+            int32_t x = 2;
+            int32_t y = gps->dimy - 3;
+            OutputString(COLOR_YELLOW, x, y, "Note: Clear search to trade");
         }
     }
 
@@ -1119,6 +1126,9 @@ public:
         {
             make_text_dim(2, 37, 22);
             make_text_dim(42, gps->dimx-2, 22);
+            int32_t x = 42;
+            int32_t y = gps->dimy - 3;
+            OutputString(COLOR_YELLOW, x, y, "Note: Clear search to trade");
         }
     }
 
@@ -1431,6 +1441,36 @@ IMPLEMENT_HOOKS(df::viewscreen_layer_noblelistst, nobles_search);
 // END: Nobles search list
 //
 
+//
+// START: Workshop profiles search list
+//
+typedef layered_search<df::viewscreen_layer_workshop_profilest, df::unit*, 0> profiles_search_base;
+class profiles_search : public profiles_search_base
+{
+public:
+
+    string get_element_description(df::unit *element) const
+    {
+        return get_unit_description(element);
+    }
+
+    void render() const
+    {
+        print_search_option(2, 23);
+    }
+
+    vector<df::unit *> *get_primary_list() 
+    {
+        return &viewscreen->workers;
+    }
+};
+
+IMPLEMENT_HOOKS(df::viewscreen_layer_workshop_profilest, profiles_search);
+
+//
+// END: Workshop profiles search list
+//
+
 
 //
 // START: Job list search
@@ -1609,6 +1649,7 @@ IMPLEMENT_HOOKS(df::viewscreen_dwarfmodest, burrow_search);
 
 
 DFHACK_PLUGIN("search");
+DFHACK_PLUGIN_IS_ENABLED(is_enabled);
 
 #define SEARCH_HOOKS \
     HOOK_ACTION(unitlist_search_hook) \
@@ -1619,20 +1660,34 @@ DFHACK_PLUGIN("search");
     HOOK_ACTION(pets_search_hook) \
     HOOK_ACTION(military_search_hook) \
     HOOK_ACTION(nobles_search_hook) \
+    HOOK_ACTION(profiles_search_hook) \
     HOOK_ACTION(annoucnement_search_hook) \
     HOOK_ACTION(joblist_search_hook) \
     HOOK_ACTION(burrow_search_hook) \
     HOOK_ACTION(stockpile_search_hook)
 
+DFhackCExport command_result plugin_enable ( color_ostream &out, bool enable)
+{
+    if (!gps || !gview)
+        return CR_FAILURE;
+
+    if (is_enabled != enable)
+    {
+#define HOOK_ACTION(hook) \
+    !INTERPOSE_HOOK(hook, feed).apply(enable) || \
+    !INTERPOSE_HOOK(hook, render).apply(enable) ||
+
+        if (SEARCH_HOOKS 0)
+            return CR_FAILURE;
+
+        is_enabled = enable;
+    }
+
+    return CR_OK;
+}
+
 DFhackCExport command_result plugin_init ( color_ostream &out, vector <PluginCommand> &commands)
 {
-#define HOOK_ACTION(hook) \
-    !INTERPOSE_HOOK(hook, feed).apply() || \
-    !INTERPOSE_HOOK(hook, render).apply() ||
-
-    if (!gps || !gview || SEARCH_HOOKS 0)
-        out.printerr("Could not insert Search hooks!\n");
-
 #undef HOOK_ACTION
 
     const string a[] = {"Meager Quarters", "Modest Quarters", "Quarters", "Decent Quarters", "Fine Quarters", "Great Bedroom", "Grand Bedroom", "Royal Bedroom"};

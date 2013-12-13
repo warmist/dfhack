@@ -113,6 +113,7 @@
 using std::vector;
 using std::string;
 using std::stack;
+using std::set;
 using namespace DFHack;
 using namespace df::enums;
 
@@ -950,8 +951,12 @@ static bool find_engines(color_ostream &out)
     return !engines.empty();
 }
 
+DFHACK_PLUGIN_IS_ENABLED(is_enabled);
+
 static void enable_hooks(bool enable)
 {
+    is_enabled = enable;
+
     INTERPOSE_HOOK(liquid_hook, getItemDescription).apply(enable);
     INTERPOSE_HOOK(liquid_hook, adjustTemperature).apply(enable);
     INTERPOSE_HOOK(liquid_hook, checkTemperatureDamage).apply(enable);

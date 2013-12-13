@@ -17,6 +17,29 @@
 #include "modules/Maps.h"
 #include "df/activity_event.h"
 #include "df/activity_entry.h"
+#include "df/unit_preference.h"
+#include "df/unit_soul.h"
+#include "df/item_type.h"
+
+#include "df/itemdef_weaponst.h"
+#include "df/itemdef_trapcompst.h"
+#include "df/itemdef_toyst.h"
+#include "df/itemdef_toolst.h"
+#include "df/itemdef_instrumentst.h"
+#include "df/itemdef_armorst.h"
+#include "df/itemdef_ammost.h"
+#include "df/itemdef_siegeammost.h"
+#include "df/itemdef_glovesst.h"
+#include "df/itemdef_shoesst.h"
+#include "df/itemdef_shieldst.h"
+#include "df/itemdef_helmst.h"
+#include "df/itemdef_pantsst.h"
+#include "df/itemdef_foodst.h"
+#include "df/trapcomp_flags.h"
+#include "df/creature_raw.h"
+#include "df/world_raws.h"
+#include "df/descriptor_shape.h"
+#include "df/descriptor_color.h"
 
 using std::deque;
 
@@ -25,7 +48,7 @@ using df::global::ui;
 
 typedef int16_t activity_type;
 
-#define PLUGIN_VERSION 0.5
+#define PLUGIN_VERSION 0.8
 #define DAY_TICKS 1200
 #define DELTA_TICKS 100
 
@@ -47,6 +70,36 @@ static map<df::unit *, deque<activity_type>> work_history;
 
 static int misery[] = { 0, 0, 0, 0, 0, 0, 0 };
 static bool misery_upto_date = false;
+
+static color_value monitor_colors[] = 
+{
+    COLOR_LIGHTRED,
+    COLOR_RED,
+    COLOR_YELLOW,
+    COLOR_WHITE,
+    COLOR_CYAN,
+    COLOR_LIGHTBLUE,
+    COLOR_LIGHTGREEN
+};
+
+static int get_happiness_cat(df::unit *unit)
+{
+    int happy = unit->status.happiness;
+    if (happy == 0)         // miserable
+        return 0;
+    else if (happy <= 25)   // very unhappy
+        return 1;
+    else if (happy <= 50)   // unhappy
+        return 2;
+    else if (happy <= 75)   // fine
+        return 3;
+    else if (happy <= 125)  // quite content
+        return 4;
+    else if (happy <= 150)  // happy
+        return 5;
+    else                    // ecstatic
+        return 6;
+}
 
 static int get_max_history()
 {
@@ -129,6 +182,7 @@ static string getActivityLabel(const activity_type activity)
     return label;
 }
 
+
 class ViewscreenDwarfStats : public dfhack_viewscreen
 {
 public:
@@ -179,9 +233,9 @@ public:
                 addDwarfActivity(unit, *entry);
             }
 
-            for_each_(dwarf_activity_values[unit],
-                [&] (const pair<activity_type, size_t> &x) 
-            { dwarf_activity_values[unit][x.first] = getPercentage(x.second,  dwarf_total); } );
+            auto &values = dwarf_activity_values[unit];
+            for (auto it = values.begin(); it != values.end(); ++it)
+                it->second = getPercentage(it->second, dwarf_total);
 
             dwarves_column.add(getUnitName(unit), unit);
         }
@@ -212,9 +266,8 @@ public:
             vector<pair<activity_type, size_t>> rev_vec(dwarf_activities->begin(), dwarf_activities->end());
             sort(rev_vec.begin(), rev_vec.end(), less_second<activity_type, size_t>());
 
-            for_each_(rev_vec,
-                [&] (pair<activity_type, size_t> x)
-            { dwarf_activity_column.add(getActivityItem(x.first, x.second), x.first); });
+            for (auto it = rev_vec.begin(); it != rev_vec.end(); ++it)
+                dwarf_activity_column.add(getActivityItem(it->first, it->second), it->first);
         }
 
         dwarf_activity_column.fixWidth();
@@ -754,9 +807,8 @@ public:
                 vector<pair<df::unit *, size_t>> rev_vec(dwarf_activities->begin(), dwarf_activities->end());
                 sort(rev_vec.begin(), rev_vec.end(), less_second<df::unit *, size_t>());
 
-                for_each_(rev_vec,
-                    [&] (pair<df::unit *, size_t> x)
-                { dwarf_activity_column.add(getDwarfAverage(x.first, x.second), x.first); });
+                for (auto it = rev_vec.begin(); it != rev_vec.end(); ++it)
+                    dwarf_activity_column.add(getDwarfAverage(it->first, it->second), it->first);
             }
         }
 
@@ -778,9 +830,8 @@ public:
             vector<pair<activity_type, size_t>> rev_vec(category_activities->begin(), category_activities->end());
             sort(rev_vec.begin(), rev_vec.end(), less_second<activity_type, size_t>());
 
-            for_each_(rev_vec,
-                [&] (pair<activity_type, size_t> x)
-            { category_breakdown_column.add(getBreakdownAverage(x.first, x.second), x.first); });
+            for (auto it = rev_vec.begin(); it != rev_vec.end(); ++it)
+                category_breakdown_column.add(getBreakdownAverage(it->first, it->second), it->first);
         }
 
         category_breakdown_column.fixWidth();
@@ -984,6 +1035,520 @@ private:
     }
 };
 
+
+struct preference_map
+{
+    df::unit_preference pref;
+    vector<df::unit *> dwarves;
+    string label;
+
+    string getItemLabel()
+    {
+        df::world_raws::T_itemdefs &defs = df::global::world->raws.itemdefs;
+        label = ENUM_ATTR_STR(item_type, caption, pref.item_type);
+        switch (pref.item_type)
+        {
+        case (df::item_type::WEAPON):
+            label = defs.weapons[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::TRAPCOMP):
+            label = defs.trapcomps[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::TOY):
+            label = defs.toys[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::TOOL):
+            label = defs.tools[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::INSTRUMENT):
+            label = defs.instruments[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::ARMOR):
+            label = defs.armor[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::AMMO):
+            label = defs.ammo[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::SIEGEAMMO):
+            label = defs.siege_ammo[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::GLOVES):
+            label = defs.gloves[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::SHOES):
+            label = defs.shoes[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::SHIELD):
+            label = defs.shields[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::HELM):
+            label = defs.helms[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::PANTS):
+            label = defs.pants[pref.item_subtype]->name_plural;
+            break;
+        case (df::item_type::FOOD):
+            label = defs.food[pref.item_subtype]->name;
+            break;
+
+        default:
+            break;
+        }
+
+        return label;
+    }
+
+    void makeLabel()
+    {
+        label = "";
+
+        typedef df::unit_preference::T_type T_type;
+        df::world_raws &raws = world->raws;
+        switch (pref.type)
+        {
+        case (T_type::LikeCreature):
+        {
+            label = "Creature :";
+            auto creature = df::creature_raw::find(pref.creature_id);
+            if (creature)
+                label += creature->name[1];
+            break;
+        }
+
+        case (T_type::HateCreature):
+        {
+            label = "Hates    :";
+            auto creature = df::creature_raw::find(pref.creature_id);
+            if (creature)
+                label += creature->name[1];
+            break;
+        }
+
+        case (T_type::LikeItem):
+            label = "Item     :" + getItemLabel();
+            break;
+
+        case (T_type::LikeFood):
+        {
+            label = "Food     :";
+            if (pref.matindex < 0 || pref.item_type == item_type::MEAT)
+            {
+                auto index = (pref.item_type == item_type::FISH) ? pref.mattype : pref.matindex;
+                if (index > 0)
+                {
+                    auto creature = df::creature_raw::find(index);
+                    if (creature)
+                        label += creature->name[0];
+                }
+                else
+                {
+                    label += "Invalid";
+                }
+
+                break;
+            }
+        }
+
+        case (T_type::LikeMaterial):
+        {
+            if (label.length() == 0)
+                label += "Material :";
+            MaterialInfo matinfo(pref.mattype, pref.matindex);
+            if (pref.type == T_type::LikeFood && pref.item_type == item_type::PLANT)
+            {
+                label += matinfo.material->prefix;
+            }
+            else
+                label += matinfo.toString();
+
+            break;
+        }
+
+        case (T_type::LikePlant):
+        {
+            df::plant_raw *p = raws.plants.all[pref.plant_id];
+            label += "Plant    :" + p->name_plural;
+            break;
+        }
+
+        case (T_type::LikeShape):
+            label += "Shape    :" + raws.language.shapes[pref.shape_id]->name_plural;
+            break;
+
+        case (T_type::LikeTree):
+        {
+            df::plant_raw *p = raws.plants.all[pref.plant_id];
+            label += "Tree     :" + p->name_plural;
+            break;
+        }
+
+        case (T_type::LikeColor):
+            label += "Color    :" + raws.language.colors[pref.color_id]->name;
+            break;
+        }
+    }
+};
+
+
+class ViewscreenPreferences : public dfhack_viewscreen
+{
+public:
+    ViewscreenPreferences()
+    {
+        preferences_column.multiselect = false;
+        preferences_column.auto_select = true;
+        preferences_column.setTitle("Preference");
+        preferences_column.bottom_margin = 3;
+        preferences_column.search_margin = 35;
+
+        dwarf_column.multiselect = false;
+        dwarf_column.auto_select = true;
+        dwarf_column.allow_null = true;
+        dwarf_column.setTitle("Units with Preference");
+        dwarf_column.bottom_margin = 3;
+        dwarf_column.search_margin = 35;
+
+        populatePreferencesColumn();
+    }
+
+    void populatePreferencesColumn()
+    {
+        selected_column = 0;
+
+        auto last_selected_index = preferences_column.highlighted_index;
+        preferences_column.clear();
+        preference_totals.clear();
+
+        for (auto iter = world->units.active.begin(); iter != world->units.active.end(); iter++)
+        {
+            df::unit* unit = *iter;
+            if (!Units::isCitizen(unit))
+                continue;
+
+            if (DFHack::Units::isDead(unit))
+                continue;
+
+            if (!unit->status.current_soul)
+                continue;
+
+            for (auto it = unit->status.current_soul->preferences.begin(); 
+                 it != unit->status.current_soul->preferences.end();
+                 it++)
+            {
+                auto pref = *it;
+                if (!pref->active)
+                    continue;
+                bool foundInStore = false;
+                for (size_t pref_index = 0; pref_index < preferences_store.size(); pref_index++)
+                {
+                    if (isMatchingPreference(preferences_store[pref_index].pref, *pref))
+                    {
+                        foundInStore = true;
+                        preferences_store[pref_index].dwarves.push_back(unit);
+                    }
+                }
+
+                if (!foundInStore)
+                {
+                    size_t pref_index = preferences_store.size();
+                    preferences_store.resize(pref_index + 1);
+                    preferences_store[pref_index].pref = *pref;
+                    preferences_store[pref_index].dwarves.push_back(unit);
+                }
+            }
+        }
+
+        for (size_t i = 0; i < preferences_store.size(); i++)
+        {
+            preference_totals[i] = preferences_store[i].dwarves.size();
+        }
+
+        vector<pair<size_t, size_t>> rev_vec(preference_totals.begin(), preference_totals.end());
+        sort(rev_vec.begin(), rev_vec.end(), less_second<size_t, size_t>());
+
+        for (auto rev_it = rev_vec.begin(); rev_it != rev_vec.end(); rev_it++)
+        {
+            auto pref_index = rev_it->first;
+            preferences_store[pref_index].makeLabel();
+
+            string label = pad_string(int_to_string(rev_it->second), 3);
+            label += " ";
+            label += preferences_store[pref_index].label;
+            ListEntry<size_t> elem(label, pref_index, "", getItemColor(preferences_store[pref_index].pref.type));
+            preferences_column.add(elem);
+        }
+
+        dwarf_column.left_margin = preferences_column.fixWidth() + 2;
+        preferences_column.filterDisplay();
+        preferences_column.setHighlight(last_selected_index);
+        populateDwarfColumn();
+    }
+
+    bool isMatchingPreference(df::unit_preference &lhs, df::unit_preference &rhs)
+    {
+        if (lhs.type != rhs.type)
+            return false;
+
+        typedef df::unit_preference::T_type T_type;
+        switch (lhs.type)
+        {
+        case (T_type::LikeCreature):
+            if (lhs.creature_id != rhs.creature_id)
+                return false;
+            break;
+
+        case (T_type::HateCreature):
+            if (lhs.creature_id != rhs.creature_id)
+                return false;
+            break;
+
+        case (T_type::LikeFood):
+            if (lhs.item_type != rhs.item_type)
+                return false;
+            if (lhs.mattype != rhs.mattype || lhs.matindex != rhs.matindex)
+                return false;
+            break;
+
+        case (T_type::LikeItem):
+            if (lhs.item_type != rhs.item_type || lhs.item_subtype != rhs.item_subtype)
+                return false;
+            break;
+
+        case (T_type::LikeMaterial):
+            if (lhs.mattype != rhs.mattype || lhs.matindex != rhs.matindex)
+                return false;
+            break;
+
+        case (T_type::LikePlant):
+            if (lhs.plant_id != rhs.plant_id)
+                return false;
+            break;
+
+        case (T_type::LikeShape):
+            if (lhs.shape_id != rhs.shape_id)
+                return false;
+            break;
+
+        case (T_type::LikeTree):
+            if (lhs.item_type != rhs.item_type)
+                return false;
+            break;
+
+        case (T_type::LikeColor):
+            if (lhs.color_id != rhs.color_id)
+                return false;
+            break;
+
+        default:
+            return false;
+        }
+
+        return true;
+    }
+
+    UIColor getItemColor(const df::unit_preference::T_type &type) const
+    {
+        typedef df::unit_preference::T_type T_type;
+        switch (type)
+        {
+        case (T_type::LikeCreature):
+            return COLOR_WHITE;
+
+        case (T_type::HateCreature):
+            return COLOR_LIGHTRED;
+
+        case (T_type::LikeFood):
+            return COLOR_GREEN;
+
+        case (T_type::LikeItem):
+            return COLOR_YELLOW;
+
+        case (T_type::LikeMaterial):
+            return COLOR_CYAN;
+
+        case (T_type::LikePlant):
+            return COLOR_BROWN;
+
+        case (T_type::LikeShape):
+            return COLOR_BLUE;
+
+        case (T_type::LikeTree):
+            return COLOR_BROWN;
+
+        case (T_type::LikeColor):
+            return COLOR_BLUE;
+
+        default:
+            return false;
+        }
+
+        return true;
+    }
+
+    void populateDwarfColumn()
+    {
+        dwarf_column.clear();
+        if (preferences_column.getDisplayListSize() > 0)
+        {
+            auto selected_preference = preferences_column.getFirstSelectedElem();
+            for (auto dfit = preferences_store[selected_preference].dwarves.begin();
+                 dfit != preferences_store[selected_preference].dwarves.end();
+                 dfit++)
+            {
+                string label = getUnitName(*dfit);
+                auto happy = get_happiness_cat(*dfit);
+                UIColor color = monitor_colors[happy];
+                switch (happy)
+                {
+                case 0:
+                    label += " (miserable)";
+                    break;
+
+                case 1:
+                    label += " (very unhappy)";
+                    break;
+
+                case 2:
+                    label += " (unhappy)";
+                    break;
+
+                case 3:
+                    label += " (fine)";
+                    break;
+
+                case 4:
+                    label += " (quite content)";
+                    break;
+
+                case 5:
+                    label += " (happy)";
+                    break;
+
+                case 6:
+                    label += " (ecstatic)";
+                    break;
+                }
+
+                ListEntry<df::unit *> elem(label, *dfit, "", color);
+                dwarf_column.add(elem);
+            }
+        }
+
+        dwarf_column.clearSearch();
+        dwarf_column.setHighlight(0);
+    }
+
+    void feed(set<df::interface_key> *input)
+    {
+        bool key_processed = false;
+        switch (selected_column)
+        {
+        case 0:
+            key_processed = preferences_column.feed(input);
+            break;
+        case 1:
+            key_processed = dwarf_column.feed(input);
+            break;
+        }
+
+        if (key_processed)
+        {
+            if (selected_column == 0 && preferences_column.feed_changed_highlight)
+            {
+                populateDwarfColumn();
+            }
+
+            return;
+        }
+
+        if (input->count(interface_key::LEAVESCREEN))
+        {
+            input->clear();
+            Screen::dismiss(this);
+            return;
+        }
+        else if  (input->count(interface_key::CUSTOM_SHIFT_Z))
+        {
+            df::unit *selected_unit = (selected_column == 1) ? dwarf_column.getFirstSelectedElem() : nullptr;
+            if (selected_unit)
+            {
+                input->clear();
+                Screen::dismiss(this);
+                Gui::resetDwarfmodeView(true);
+                send_key(interface_key::D_VIEWUNIT);
+                move_cursor(selected_unit->pos);
+            }
+        }
+        else if  (input->count(interface_key::CURSOR_LEFT))
+        {
+            --selected_column;
+            validateColumn();
+        }
+        else if  (input->count(interface_key::CURSOR_RIGHT))
+        {
+            ++selected_column;
+            validateColumn();
+        }
+        else if (enabler->tracking_on && enabler->mouse_lbut)
+        {
+            if (preferences_column.setHighlightByMouse())
+            {
+                selected_column = 0;
+                populateDwarfColumn();
+            }
+            else if (dwarf_column.setHighlightByMouse())
+                selected_column = 1;
+
+            enabler->mouse_lbut = enabler->mouse_rbut = 0;
+        }
+    }
+
+    void render()
+    {
+        if (Screen::isDismissed(this))
+            return;
+
+        dfhack_viewscreen::render();
+
+        Screen::clear();
+        Screen::drawBorder("  Dwarf Preferences  ");
+
+        preferences_column.display(selected_column == 0);
+        dwarf_column.display(selected_column == 1);
+
+        int32_t y = gps->dimy - 3;
+        int32_t x = 2;
+        OutputHotkeyString(x, y, "Leave", "Esc");
+
+        x += 2;
+        OutputHotkeyString(x, y, "Zoom Unit", "Shift-Z");
+    }
+
+    std::string getFocusString() { return "dwarfmonitor_preferences"; }
+
+private:
+    ListColumn<size_t> preferences_column;
+    ListColumn<df::unit *> dwarf_column;
+    int selected_column;
+
+    map<size_t, size_t> preference_totals;
+
+    vector<preference_map> preferences_store;
+
+    void validateColumn()
+    {
+        set_to_limit(selected_column, 1);
+    }
+
+    void resize(int32_t x, int32_t y)
+    {
+        dfhack_viewscreen::resize(x, y);
+        preferences_column.resize();
+        dwarf_column.resize();
+    }
+};
+
+
 static void open_stats_srceen()
 {
     Screen::show(new ViewscreenFortStats());
@@ -1048,21 +1613,7 @@ static void update_dwarf_stats(bool is_paused)
 
         if (monitor_misery)
         {
-            int happy = unit->status.happiness;
-            if (happy == 0)         // miserable
-                misery[0]++;
-            else if (happy <= 25)   // very unhappy
-                misery[1]++;
-            else if (happy <= 50)   // unhappy
-                misery[2]++;
-            else if (happy <= 75)   // fine
-                misery[3]++;
-            else if (happy <= 125)  // quite content
-                misery[4]++;
-            else if (happy <= 150)  // happy
-                misery[5]++;
-            else                    // ecstatic
-                misery[6]++;
+            misery[get_happiness_cat(unit)]++;
         }
 
         if (!monitor_jobs || is_paused)
@@ -1097,6 +1648,7 @@ static void update_dwarf_stats(bool is_paused)
     }
 }
 
+
 DFhackCExport command_result plugin_onupdate (color_ostream &out)
 {
     if (!monitor_jobs && !monitor_misery)
@@ -1127,17 +1679,6 @@ DFhackCExport command_result plugin_onupdate (color_ostream &out)
 
     return CR_OK;
 }
-
-static color_value monitor_colors[] = 
-{
-    COLOR_LIGHTRED,
-    COLOR_RED,
-    COLOR_YELLOW,
-    COLOR_WHITE,
-    COLOR_CYAN,
-    COLOR_LIGHTBLUE,
-    COLOR_LIGHTGREEN
-};
 
 struct dwarf_monitor_hook : public df::viewscreen_dwarfmodest
 {
@@ -1179,10 +1720,14 @@ IMPLEMENT_VMETHOD_INTERPOSE(dwarf_monitor_hook, feed);
 IMPLEMENT_VMETHOD_INTERPOSE(dwarf_monitor_hook, render);
 
 DFHACK_PLUGIN("dwarfmonitor");
+DFHACK_PLUGIN_IS_ENABLED(is_enabled);
 
 static bool set_monitoring_mode(const string &mode, const bool &state)
 {
     bool mode_recognized = false;
+
+    if (!is_enabled)
+        return false;
 
     if (mode == "work" || mode == "all")
     {
@@ -1199,6 +1744,24 @@ static bool set_monitoring_mode(const string &mode, const bool &state)
     }
 
     return mode_recognized;
+}
+
+DFhackCExport command_result plugin_enable(color_ostream &out, bool enable)
+{
+    if (!gps)
+        return CR_FAILURE;
+
+    if (is_enabled != enable)
+    {
+        if (!INTERPOSE_HOOK(dwarf_monitor_hook, feed).apply(enable) ||
+            !INTERPOSE_HOOK(dwarf_monitor_hook, render).apply(enable))
+            return CR_FAILURE;
+
+        reset();
+        is_enabled = enable;
+    }
+
+    return CR_OK;
 }
 
 static command_result dwarfmonitor_cmd(color_ostream &out, vector <string> & parameters)
@@ -1222,6 +1785,9 @@ static command_result dwarfmonitor_cmd(color_ostream &out, vector <string> & par
         }
         else if ((cmd == 'e' || cmd == 'E') && !mode.empty())
         {
+            if (!is_enabled)
+                plugin_enable(out, true);
+
             if (set_monitoring_mode(mode, true))
             {
                 out << "Monitoring enabled: " << mode << endl;
@@ -1243,6 +1809,11 @@ static command_result dwarfmonitor_cmd(color_ostream &out, vector <string> & par
             if(Maps::IsValid())
                 Screen::show(new ViewscreenFortStats());
         }
+        else if (cmd == 'p' || cmd == 'P')
+        {
+            if(Maps::IsValid())
+                Screen::show(new ViewscreenPreferences());
+        }
         else
         {
             show_help = true;
@@ -1257,9 +1828,6 @@ static command_result dwarfmonitor_cmd(color_ostream &out, vector <string> & par
 
 DFhackCExport command_result plugin_init(color_ostream &out, std::vector <PluginCommand> &commands)
 {
-    if (!gps || !INTERPOSE_HOOK(dwarf_monitor_hook, feed).apply() || !INTERPOSE_HOOK(dwarf_monitor_hook, render).apply())
-        out.printerr("Could not insert dwarfmonitor hooks!\n");
-
     activity_labels[JOB_IDLE]               = "Idle";
     activity_labels[JOB_MILITARY]           = "Military Duty";
     activity_labels[JOB_LEISURE]            = "Leisure";
@@ -1288,7 +1856,9 @@ DFhackCExport command_result plugin_init(color_ostream &out, std::vector <Plugin
         "dwarfmonitor disable <mode>\n"
         "    <mode> as above\n\n"
         "dwarfmonitor stats\n"
-        "  Show statistics summary\n\n"
+        "  Show statistics summary\n"
+        "dwarfmonitor prefs\n"
+        "  Show dwarf preferences summary\n\n"
         ));
 
     return CR_OK;
