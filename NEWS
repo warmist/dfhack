@@ -1,7 +1,8 @@
 DFHack future
 
  - Is not yet known.
-
+  New scripts:
+    - gui/mod-manager: allows installing/uninstalling mods into df from df/mods directory.
   Misc improvements:
     - digfort: improved csv parsing, add start() comment handling
 
