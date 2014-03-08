@@ -2,14 +2,14 @@
 #include "Console.h"
 #include "Export.h"
 #include "PluginManager.h"
-
 #include "DataDefs.h"
 
 #include <vector>
 #include <string>
 #include <map>
-#include "PassiveSocket.h"
-#include "ActiveSocket.h"
+#include <PassiveSocket.h>
+#include <ActiveSocket.h>
+#include "tinythread.h"
 #include "MiscUtils.h"
 #include "LuaTools.h"
 #include "DataFuncs.h"
@@ -17,8 +17,9 @@
 using namespace DFHack;
 using namespace df::enums;
 
+class Connection;
 CPassiveSocket* server=0;
-std::map<int,CActiveSocket*> clients;
+std::map<int,Connection*> clients;
 
 DFHACK_PLUGIN("luasocket");
 
@@ -108,7 +109,7 @@ class Connection
             int pos=mysock->Receive(sizeof(uint32_t));
             if(pos<=0)
             {
-                alive=false;
+                Close(); //todo, get error
                 return;
             }
             uint32_t *d=(uint32_t*)mysock->GetData();
@@ -123,7 +124,7 @@ class Connection
                     int ret=mysock->Receive(sizeof(uint32_t));
                     if(ret<=0)
                     {
-                        alive=false;
+                        Close(); //todo get error
                         delete [] buffer;
                         return;
                     }
@@ -159,10 +160,13 @@ public:
     void Close()
     {
         alive=false;
+        
         mysock->Close();//should do everything okay?
     }
-    void Send(uint8* buf,int32 size)
+    void Send(const uint8* buf,int32 size)
     {
+        if(!alive)
+            return;
         uint8* bufn=new uint8[size+sizeof(int32)];
         int32* sizeB=reinterpret_cast<int32*>(bufn);
         *sizeB=htonl(size);
@@ -192,17 +196,29 @@ static void lua_sock_listen(std::string ip,int port)
     if(server==0)
     {
         server=new CPassiveSocket;
+        if(!server->Initialize())
+        {
+            throw std::runtime_error(translate_socket_error(server->GetSocketError()));
+        }
         server->SetNonblocking();  
-        server->Listen((uint8_t*)ip.c_str(),port);
+        if(!server->Listen((uint8_t*)ip.c_str(),port))
+        {
+            throw std::runtime_error(translate_socket_error(server->GetSocketError()));
+        }
     }
-
 }
 static void lua_sock_connect(std::string ip,int port)
 {
     CActiveSocket *sock=new CActiveSocket;
+    if(!sock->Initialize())
+    {
+        throw std::runtime_error(translate_socket_error(sock->GetSocketError()));
+    }
     if(!sock->Open((uint8*)ip.c_str(),port))
     {
-        throw std::runtime_error("Failed to connect");
+        const char* err=translate_socket_error(sock->GetSocketError());
+        delete sock;
+        throw std::runtime_error(err);
     }
     Connection *t=new Connection(sock,-1);
     clients[-1]=t;
@@ -226,22 +242,22 @@ static void lua_sock_disconnect(int id)
     }
     if(clients.find(id)!=clients.end())
     {
+        CoreSuspender suspend;
         clients[id]->Close();
         //delete clients[id]; can't delete here. not my thread prob...
         //clients.erase(id);
-        CoreSuspender suspend;
         color_ostream_proxy out(Core::getInstance().getConsole());
         onDisconnect(out,id);
     }
 
 }
-static void lua_sock_send(int id,int32 size,char* buf)
+static void lua_sock_send(int id,std::string msg)
 {
 
     if(clients.find(id)!=clients.end())
     {
-        CActiveSocket *sock=clients[id];
-        sock->Send((uint8*)buf,size);
+        Connection *sock=clients[id];
+        sock->Send((const uint8*)msg.c_str(),msg.size());
     }
 
 }
@@ -261,40 +277,46 @@ DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <Plug
 DFhackCExport command_result plugin_onupdate(color_ostream &out)
 {
     static int last_id=0;
-    /*if(server)
+    if(server)
     {
         CActiveSocket* sock=server->Accept();
         if(sock)
         {
-            clients[last_id]=sock;
+            Connection* new_con=new Connection(sock,last_id);
+            clients[last_id]=new_con;
             CoreSuspendClaimer claim;
             onNewClient(out,last_id);
             last_id++;
+            new_con->Start();
         }
     }
     for(auto it=clients.begin();it!=clients.end();)
     {
-        CActiveSocket* a=it->second;
-        uint32_t pos=a->Receive(sizeof(uint32_t));
-        if(pos==0)
+        if(!it->second->isAlive())
         {
-            auto toErase=it;
-            it++;
-            clients.erase(toErase);
-            onDisconnect(out,toErase->first);
+            CoreSuspendClaimer claim;
+            Connection *todel=it->second;
+            onDisconnect(out,it->first);
+            it=clients.erase(it);
+            delete todel;
         }
         else
             it++;
-    }
+    }   
     return CR_OK;
 }
 DFhackCExport command_result plugin_shutdown ( color_ostream &out )
 {
+    CoreSuspendClaimer claim;
     if(server)
+    {
         delete server;
-    for(std::map<int,CActiveSocket*>::iterator it=clients.begin();it!=clients.end();it++)
+        server=NULL;
+    }
+    for(auto it=clients.begin();it!=clients.end();it++)
+    {
+        //onDisconnect(out,it->first);
         delete it->second;
-        onDisconnect(out,it->first);
     }
     clients.clear();
     return CR_OK;
