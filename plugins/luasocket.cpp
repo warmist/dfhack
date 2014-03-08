@@ -72,7 +72,7 @@ static void handle_new_client(color_ostream &out,int id)
 {
 
 }
-static void handle_data_recievend(color_ostream &out,int id,std::string)
+static void handle_data_recievend(color_ostream &out,int id,uint32_t size,uint8_t* buf)
 {
 
 }
@@ -81,7 +81,7 @@ static void handle_disconnect(color_ostream &out,int id)
 
 }
 DEFINE_LUA_EVENT_1(onNewClient, handle_new_client, int);
-DEFINE_LUA_EVENT_2(onDataRecieved, handle_data_recievend,int,std::string);
+DEFINE_LUA_EVENT_3(onDataRecieved, handle_data_recievend,int,uint32_t ,uint8_t* );
 DEFINE_LUA_EVENT_1(onDisconnect, handle_disconnect,int);
 
 DFHACK_PLUGIN_LUA_EVENTS {
@@ -134,7 +134,7 @@ class Connection
                 }
                 CoreSuspender suspend;
                 color_ostream_proxy out(Core::getInstance().getConsole());
-                onDataRecieved(out,myId,std::string((char*)buffer,size));
+                onDataRecieved(out,myId,size,buffer);
                 delete [] buffer;
             }
             else
@@ -251,21 +251,30 @@ static void lua_sock_disconnect(int id)
     }
 
 }
-static void lua_sock_send(int id,std::string msg)
+static int lua_sock_send(lua_State* L)
 {
-
+    int id=luaL_checkint(L,1);
     if(clients.find(id)!=clients.end())
     {
         Connection *sock=clients[id];
-        sock->Send((const uint8*)msg.c_str(),msg.size());
+        int size=luaL_checkint(L,2);
+        uint8_t* data=Lua::CheckDFObject<uint8_t>(L,3,true);
+        sock->Send(data,size);
     }
-
+    else
+    {
+        //lua_error?
+    }
+    return 0;
 }
+DFHACK_PLUGIN_LUA_COMMANDS{
+    DFHACK_LUA_COMMAND(lua_sock_send),
+    DFHACK_LUA_END
+};
 DFHACK_PLUGIN_LUA_FUNCTIONS {
     DFHACK_LUA_FUNCTION(lua_sock_listen),
     DFHACK_LUA_FUNCTION(lua_sock_connect),
     DFHACK_LUA_FUNCTION(lua_sock_disconnect),
-    DFHACK_LUA_FUNCTION(lua_sock_send),
     DFHACK_LUA_END
 };
 DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <PluginCommand> &commands)
