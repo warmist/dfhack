@@ -7,19 +7,23 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
 #include <PassiveSocket.h>
 #include <ActiveSocket.h>
 #include "tinythread.h"
 #include "MiscUtils.h"
 #include "LuaTools.h"
 #include "DataFuncs.h"
+#include <stdexcept> //todo convert errors to lua-errors and co. Then remove this
 
 using namespace DFHack;
 using namespace df::enums;
 
 class Connection;
 CPassiveSocket* server=0;
-std::map<int,Connection*> clients;
+tthread::recursive_mutex clients_mutex;
+typedef tthread::lock_guard<tthread::recursive_mutex> guard_t;
+std::map<int,std::shared_ptr<Connection> > clients;
 
 DFHACK_PLUGIN("luasocket");
 
@@ -106,15 +110,15 @@ class Connection
     {
         while(alive)
         {
-            int pos=mysock->Receive(sizeof(uint32_t));
-            if(pos<=0)
-            {
-                Close(); //todo, get error
-                return;
-            }
-            uint32_t *d=(uint32_t*)mysock->GetData();
-            if(d!=0)
-            {
+            try{
+                int pos=mysock->Receive(sizeof(uint32_t));
+                if(pos<=0)
+                {
+                    throw std::runtime_error(translate_socket_error(mysock->GetSocketError()));
+                }
+                uint32_t *d=(uint32_t*)mysock->GetData();
+                if(d==0)
+                    throw std::runtime_error(translate_socket_error(mysock->GetSocketError()));
                 uint32_t size=ntohl(*d);
                 uint8_t* buffer=new uint8_t[size]; //std::vector here...
                 uint8_t* cptr=buffer;
@@ -124,9 +128,8 @@ class Connection
                     int ret=mysock->Receive(sizeof(uint32_t));
                     if(ret<=0)
                     {
-                        Close(); //todo get error
                         delete [] buffer;
-                        return;
+                        throw std::runtime_error(translate_socket_error(mysock->GetSocketError()));
                     }
                     memcpy(cptr,mysock->GetData(),ret);
                     cptr+=ret;
@@ -137,12 +140,17 @@ class Connection
                 onDataRecieved(out,myId,size,buffer);
                 delete [] buffer;
             }
-            else
+            catch(std::exception& e)
             {
-                CoreSuspender suspend;
-                color_ostream_proxy out(Core::getInstance().getConsole());
-                out.printerr("%s\n",translate_socket_error(mysock->GetSocketError()));
+                if(alive)
+                {
+                    CoreSuspender suspend;
+                    color_ostream_proxy out(Core::getInstance().getConsole());
+                    out.printerr("%s\n",e.what());
+                    Close();
+                }
                 return;
+
             }
         }
     }
@@ -160,8 +168,9 @@ public:
     void Close()
     {
         alive=false;
-        
         mysock->Close();//should do everything okay?
+        guard_t guard(clients_mutex);
+        clients.erase(myId);
     }
     void Send(const uint8* buf,int32 size)
     {
@@ -182,6 +191,11 @@ public:
     ~Connection()
     {
         alive=false;
+        {
+            CoreSuspender claim;
+            color_ostream_proxy out(Core::getInstance().getConsole());
+            onDisconnect(out,myId);
+        }
         mysock->Close();
         if(myThread->joinable())
             myThread->join();
@@ -220,49 +234,51 @@ static void lua_sock_connect(std::string ip,int port)
         delete sock;
         throw std::runtime_error(err);
     }
-    Connection *t=new Connection(sock,-1);
-    clients[-1]=t;
+    std::shared_ptr<Connection> t(new Connection(sock,-1));
+    {
+        guard_t guard(clients_mutex);
+        clients[-1]=t;
+    }
     t->Start();
+
     CoreSuspender suspend;
     color_ostream_proxy out(Core::getInstance().getConsole());
     onNewClient(out,-1);
 }
 static void lua_sock_disconnect(int id)
 {
+    //from lua, so it's suspended already?
     if(id==-2 && server) //server shutdown
     {
-        CoreSuspender suspend;
         server->Close();
-        for(auto it=clients.begin();it!=clients.end();it++)
-        {
-            delete it->second;
-        }
+        guard_t guard(clients_mutex);
         clients.clear();
         return;
     }
-    if(clients.find(id)!=clients.end())
-    {
-        CoreSuspender suspend;
-        clients[id]->Close();
-        //delete clients[id]; can't delete here. not my thread prob...
-        //clients.erase(id);
-        color_ostream_proxy out(Core::getInstance().getConsole());
-        onDisconnect(out,id);
+    {    
+        guard_t guard(clients_mutex);
+        if(clients.find(id)!=clients.end())
+        {
+            clients[id]->Close();
+        }
     }
-
 }
 static int lua_sock_send(lua_State* L)
 {
     int id=luaL_checkint(L,1);
+    guard_t guard(clients_mutex);
     if(clients.find(id)!=clients.end())
     {
-        Connection *sock=clients[id];
+        std::shared_ptr<Connection> sock=clients[id];
+        if(!sock->isAlive())
+            luaL_error(L,"Socket somehow died...");
         int size=luaL_checkint(L,2);
         uint8_t* data=Lua::CheckDFObject<uint8_t>(L,3,true);
         sock->Send(data,size);
     }
     else
     {
+        luaL_error(L,"Invalid client id");
         //lua_error?
     }
     return 0;
@@ -291,27 +307,18 @@ DFhackCExport command_result plugin_onupdate(color_ostream &out)
         CActiveSocket* sock=server->Accept();
         if(sock)
         {
-            Connection* new_con=new Connection(sock,last_id);
-            clients[last_id]=new_con;
+            
+            std::shared_ptr<Connection> new_con(new Connection(sock,last_id));
+            {
+                guard_t guard(clients_mutex);
+                clients[last_id]=new_con;
+            }
             CoreSuspendClaimer claim;
             onNewClient(out,last_id);
             last_id++;
             new_con->Start();
         }
     }
-    for(auto it=clients.begin();it!=clients.end();)
-    {
-        if(!it->second->isAlive())
-        {
-            CoreSuspendClaimer claim;
-            Connection *todel=it->second;
-            onDisconnect(out,it->first);
-            it=clients.erase(it);
-            delete todel;
-        }
-        else
-            it++;
-    }   
     return CR_OK;
 }
 DFhackCExport command_result plugin_shutdown ( color_ostream &out )
@@ -322,11 +329,7 @@ DFhackCExport command_result plugin_shutdown ( color_ostream &out )
         delete server;
         server=NULL;
     }
-    for(auto it=clients.begin();it!=clients.end();it++)
-    {
-        //onDisconnect(out,it->first);
-        delete it->second;
-    }
+    guard_t guard(clients_mutex);
     clients.clear();
     return CR_OK;
 }
