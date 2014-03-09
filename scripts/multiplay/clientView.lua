@@ -30,14 +30,15 @@ function clientView:init(args)
 				}
 			}
 	}
-	self.base=clientBase{}
-	self.view=ViewControl{buffer=self.base.buffer}
-	self.base:addControl(self.view)
+	self.view=ViewControl{} 
+	self.base=clientBase{initControls={self.view}} 
+	self.view.buffer=self.base.buffer
 	self.base.onDoneInit=function()
 		self.base:sendLogin("user","password")
 		self.view:set_viewscreen(gui.mkdims_wh(0,0,20,20),0)
 		self.view:render() -- start the rendering!
 	end
+	self.base:sendVersion() -- a fix for chicken and egg problem
 end
 --[[function clientView:onResize(w,h)
 	self.view:set_viewscreen(gui.mkdims_wh(0,0,w,h),0)
@@ -68,8 +69,13 @@ function clientView:onInput(keys)
 	if keys.STRING_A096 then -- '`'
 		self:dismiss()
 	else
+		if keys.SELECT then
+			self.base.buffer:reset()
+			self.base.buffer:append("Hello world")
+			self.base.buffer:send(-1)
+		end
 		--self:inputToSubviews(keys)
-		printall(keys)
+		--printall(keys)
 	end
 end
 function clientView:onDismiss()

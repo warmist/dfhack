@@ -122,18 +122,23 @@ function buffer:extract(dataType,intSize,peek)
 	end
 end
 function buffer:reset()
+	print("BUFFER| reset",self.offset,self.readOffset)
 	self.offset=0
 	self.readOffset=0
 end
 function buffer:receive(data,size)
+	self:reset()
 	print("BUFFER| received:",size)
+	for i=0,size-1 do
+		print(data[i])
+	end
 	self.recBuf=data
 	self.readOffset=0
 end
 function buffer:send(id)
 	print("BUFFER| sending:",self.offset)
 	socket.lua_sock_send(id,self.offset,self.msgBuf)
-	self.offset=0
+	self:reset()
 end
 
 return _ENV

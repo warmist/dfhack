@@ -5,6 +5,7 @@ local offscreen= require 'plugins.offscreen'
 local buffer=require('hack.scripts.multiplay.buffer').buffer
 local messages=require('hack.scripts.multiplay.messages').MSG_TYPES
 
+--resend view on change of viewscreen
 local RESEND_ON_CHANGE=false
 server_saved_views={} --saved views by user name
 
@@ -122,8 +123,8 @@ control_view.client.ID=1
 control_view.client=defclass(control_view.client)
 control_view.client.ATTRS={
 	buffer=DEFAULT_NIL,
-	readyFunction=DEFAULT_NIL,
-	dirty=false
+	readyFunction=DEFAULT_NIL, -- a callback when the new screen is ready
+	dirty=false,	--the screen got updated
 }
 
 function control_view.client:set_viewscreen(rect,z)

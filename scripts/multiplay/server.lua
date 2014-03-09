@@ -33,7 +33,7 @@ end
 function server:newClient(id)
 	print("New client connected:",id)
 	self.clients[id]={controls={}}
-	self:sendVersion(id)
+	--self:sendVersion(id)
 end
 function server:dataReceived(id,size,data)
 	local buf=self.buffer
@@ -61,11 +61,13 @@ function server:disconnect(id)
 	self.clients[id]=nil
 end
 function server:initClient(id,buf)
+	printall(buf)
 	local pVer=buf:extract()
 	if pVer~=PROTOCOL_VERSION then
 		self:sendInfo(id,"Protocol version mismatch: expecting:"..PROTOCOL_VESION.." got:"..pVer)
 		return
 	end
+	printall(buf)
 	local numControls=buf:extract()
 	print("Client:"..id.." will be handling:"..numControls.." controls")
 	for i=1,numControls do
@@ -128,6 +130,7 @@ function server:shutdown()
 	self.buffer=nil
 	socket.lua_sock_disconnect(-2)
 end
+-- INSERT CONTROLS HERE:
 local ctrl_view_free=require('hack.scripts.multiplay.control_view_free').control_view.server
 if args[1] and args[1]=="shutdown" then
 	if serverInstance then
