@@ -7,20 +7,26 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
 #include <PassiveSocket.h>
 #include <ActiveSocket.h>
-#include "tinythread.h"
 #include "MiscUtils.h"
 #include "LuaTools.h"
 #include "DataFuncs.h"
+#include <stdexcept> //todo convert errors to lua-errors and co. Then remove this
 
 using namespace DFHack;
 using namespace df::enums;
-
-class Connection;
-CPassiveSocket* server=0;
-std::map<int,Connection*> clients;
-
+struct server
+{
+    CPassiveSocket *socket;
+    std::map<int,CActiveSocket*> clients;
+    int last_client_id;
+    void close();
+};
+std::map<int,server> servers;
+typedef std::map<int,CActiveSocket*> clients_map;
+clients_map clients; //free clients, i.e. non-server spawned clients
 DFHACK_PLUGIN("luasocket");
 
 // The error messages are taken from the clsocket source code
@@ -68,213 +74,259 @@ const char * translate_socket_error(CSimpleSocket::CSocketError err) {
             return "No such CSimpleSocket error";
     }
 }
-static void handle_new_client(color_ostream &out,int id)
+void server::close()
 {
-
+    for(auto it=clients.begin();it!=clients.end();it++)
+    {
+        CActiveSocket* sock=it->second;
+        sock->Close();
+        delete sock;
+    }
+    clients.clear();
+    socket->Close();
+    delete socket;
 }
-static void handle_data_recievend(color_ostream &out,int id,uint32_t size,uint8_t* buf)
+std::pair<CActiveSocket*,clients_map*> get_client(int server_id,int client_id)
 {
+    std::map<int,CActiveSocket*>* target=&clients;
+    if(server_id>0)
+    {
+        if(servers.count(server_id)==0)
+        {
+            throw std::runtime_error("Server with this id does not exist");
+        }
+        server &cur_server=servers[server_id];
+        target=&cur_server.clients;
+    }
 
+    if(target->count(client_id)==0)
+    {
+        throw std::runtime_error("Client does with this id not exist");
+    }
+    CActiveSocket *sock=(*target)[client_id];
+    return std::make_pair(sock,target);
 }
-static void handle_disconnect(color_ostream &out,int id)
+void handle_error(CSimpleSocket::CSocketError err,bool skip_timeout=true)
 {
-
+    if(err==CSimpleSocket::SocketSuccess)
+        return;
+    if(err==CSimpleSocket::SocketTimedout && skip_timeout)
+        return;
+    throw std::runtime_error(translate_socket_error(err));
 }
-DEFINE_LUA_EVENT_1(onNewClient, handle_new_client, int);
-DEFINE_LUA_EVENT_3(onDataRecieved, handle_data_recievend,int,uint32_t ,uint8_t* );
-DEFINE_LUA_EVENT_1(onDisconnect, handle_disconnect,int);
-
-DFHACK_PLUGIN_LUA_EVENTS {
-    DFHACK_LUA_EVENT(onNewClient),
-    DFHACK_LUA_EVENT(onDataRecieved),
-    DFHACK_LUA_EVENT(onDisconnect),
-    DFHACK_LUA_END
-};
-class Connection
+static int lua_socket_bind(std::string ip,int port)
 {
-    CActiveSocket* mysock;
-    tthread::thread *myThread;
-    int myId;
-    bool alive;
-    static void work(void* args)
-    {
-        Connection* myself=static_cast<Connection*>(args);
-        myself->run();
-    }
-    
-    void run()
-    {
-        while(alive)
-        {
-            int pos=mysock->Receive(sizeof(uint32_t));
-            if(pos<=0)
-            {
-                Close(); //todo, get error
-                return;
-            }
-            uint32_t *d=(uint32_t*)mysock->GetData();
-            if(d!=0)
-            {
-                uint32_t size=ntohl(*d);
-                uint8_t* buffer=new uint8_t[size]; //std::vector here...
-                uint8_t* cptr=buffer;
-                uint32_t csize=0;
-                while(csize<size)
-                {
-                    int ret=mysock->Receive(sizeof(uint32_t));
-                    if(ret<=0)
-                    {
-                        Close(); //todo get error
-                        delete [] buffer;
-                        return;
-                    }
-                    memcpy(cptr,mysock->GetData(),ret);
-                    cptr+=ret;
-                    csize+=ret;
-                }
-                CoreSuspender suspend;
-                color_ostream_proxy out(Core::getInstance().getConsole());
-                onDataRecieved(out,myId,size,buffer);
-                delete [] buffer;
-            }
-            else
-            {
-                CoreSuspender suspend;
-                color_ostream_proxy out(Core::getInstance().getConsole());
-                out.printerr("%s\n",translate_socket_error(mysock->GetSocketError()));
-                return;
-            }
-        }
-    }
-public:
-    Connection(CActiveSocket* socket,int id):mysock(socket),myThread(0),myId(id)
-    {
-        socket->SetBlocking();
-        alive=true;
-    }
-    bool isAlive(){return alive;}
-    void Start()
-    {
-        myThread=new tthread::thread(work,this);
-    }
-    void Close()
-    {
-        alive=false;
-        
-        mysock->Close();//should do everything okay?
-    }
-    void Send(const uint8* buf,int32 size)
-    {
-        if(!alive)
-            return;
-        uint8* bufn=new uint8[size+sizeof(int32)];
-        int32* sizeB=reinterpret_cast<int32*>(bufn);
-        *sizeB=htonl(size);
-        memcpy(bufn+sizeof(int32),buf,size);
-        if(mysock->Send(bufn,size+sizeof(int32))!=size+sizeof(int32))
-        {
-            CoreSuspender suspend;
-            color_ostream_proxy out(Core::getInstance().getConsole());
-            out.printerr("%s\n",translate_socket_error(mysock->GetSocketError()));
-        }
-        delete [] bufn;
-    }
-    ~Connection()
-    {
-        alive=false;
-        mysock->Close();
-        if(myThread->joinable())
-            myThread->join();
-
-        delete mysock;
-        delete myThread;
-    }
-};
-
-static void lua_sock_listen(std::string ip,int port)
-{
-    if(server==0)
-    {
-        server=new CPassiveSocket;
-        if(!server->Initialize())
-        {
-            throw std::runtime_error(translate_socket_error(server->GetSocketError()));
-        }
-        server->SetNonblocking();  
-        if(!server->Listen((uint8_t*)ip.c_str(),port))
-        {
-            throw std::runtime_error(translate_socket_error(server->GetSocketError()));
-        }
-    }
-}
-static void lua_sock_connect(std::string ip,int port)
-{
-    CActiveSocket *sock=new CActiveSocket;
+    static int server_id=0;
+    CPassiveSocket* sock=new CPassiveSocket;
     if(!sock->Initialize())
     {
-        throw std::runtime_error(translate_socket_error(sock->GetSocketError()));
-    }
-    if(!sock->Open((uint8*)ip.c_str(),port))
-    {
-        const char* err=translate_socket_error(sock->GetSocketError());
+        CSimpleSocket::CSocketError err=sock->GetSocketError();
         delete sock;
-        throw std::runtime_error(err);
+        handle_error(err,false);
     }
-    Connection *t=new Connection(sock,-1);
-    clients[-1]=t;
-    t->Start();
-    CoreSuspender suspend;
-    color_ostream_proxy out(Core::getInstance().getConsole());
-    onNewClient(out,-1);
+    sock->SetBlocking();
+    if(!sock->Listen((uint8_t*)ip.c_str(),port))
+    {
+        handle_error(sock->GetSocketError(),false);
+    }
+    server_id++;
+    server& cur_server=servers[server_id];
+    cur_server.socket=sock;
+    cur_server.last_client_id=0;
+    return server_id;
 }
-static void lua_sock_disconnect(int id)
+static int lua_server_accept(int id,bool fail_on_timeout)
 {
-    if(id==-2 && server) //server shutdown
+    if(servers.count(id)==0)
     {
-        CoreSuspender suspend;
-        server->Close();
-        for(auto it=clients.begin();it!=clients.end();it++)
-        {
-            delete it->second;
-        }
-        clients.clear();
-        return;
+        throw std::runtime_error("Server not bound");
     }
-    if(clients.find(id)!=clients.end())
+    server &cur_server=servers[id];
+    CActiveSocket* sock=cur_server.socket->Accept();
+    if(!sock)
     {
-        CoreSuspender suspend;
-        clients[id]->Close();
-        //delete clients[id]; can't delete here. not my thread prob...
-        //clients.erase(id);
-        color_ostream_proxy out(Core::getInstance().getConsole());
-        onDisconnect(out,id);
-    }
-
-}
-static int lua_sock_send(lua_State* L)
-{
-    int id=luaL_checkint(L,1);
-    if(clients.find(id)!=clients.end())
-    {
-        Connection *sock=clients[id];
-        int size=luaL_checkint(L,2);
-        uint8_t* data=Lua::CheckDFObject<uint8_t>(L,3,true);
-        sock->Send(data,size);
+        handle_error(sock->GetSocketError(),!fail_on_timeout);
+        return 0;
     }
     else
     {
-        //lua_error?
+        cur_server.last_client_id++;
+        cur_server.clients[cur_server.last_client_id]=sock;
+        return cur_server.last_client_id;
     }
-    return 0;
 }
-DFHACK_PLUGIN_LUA_COMMANDS{
-    DFHACK_LUA_COMMAND(lua_sock_send),
-    DFHACK_LUA_END
-};
+static void lua_client_close(int server_id,int client_id)
+{
+    auto info=get_client(server_id,client_id);
+
+    CActiveSocket *sock=info.first;
+    std::map<int,CActiveSocket*>* target=info.second;
+
+    target->erase(client_id);
+    CSimpleSocket::CSocketError err=CSimpleSocket::SocketSuccess;
+    if(!sock->Close())
+        err=sock->GetSocketError();
+    delete sock;
+    if(err!=CSimpleSocket::SocketSuccess)
+    {
+        throw std::runtime_error(translate_socket_error(err));
+    }
+}
+static void lua_server_close(int server_id)
+{
+    if(servers.count(server_id)==0)
+    {
+        throw std::runtime_error("Server with this id does not exist");
+    }
+    server &cur_server=servers[server_id];
+    try{
+        cur_server.close();
+    }
+    catch(...)
+    {
+        servers.erase(server_id);
+        throw;
+    }
+}
+static std::string lua_client_receive(int server_id,int client_id,int bytes,std::string pattern,bool fail_on_timeout)
+{
+    auto info=get_client(server_id,client_id);
+    CActiveSocket *sock=info.first;
+    if(bytes>0)
+    {
+        if(sock->Receive(bytes)<=0)
+        {
+            throw std::runtime_error(translate_socket_error(sock->GetSocketError()));
+        }
+        return std::string((char*)sock->GetData(),bytes);
+    }
+    else
+    {
+        std::string ret;
+        if(pattern=="*a") //??
+        {
+            while(true)
+            {
+                int received=sock->Receive(1);
+                if(received<0)
+                {
+                    handle_error(sock->GetSocketError(),!fail_on_timeout);
+                    return "";//maybe return partial string?
+                }
+                else if(received==0)
+                {
+                    break;
+                }
+                ret+=(char)*sock->GetData();
+            }
+            return ret;
+        }
+        else if (pattern=="" || pattern=="*l")
+        {
+            while(true)
+            {
+                
+                if(sock->Receive(1)<=0)
+                {
+                    handle_error(sock->GetSocketError(),!fail_on_timeout);
+                    return "";//maybe return partial string?
+                }
+                char rec=(char)*sock->GetData();
+                if(rec=='\n')
+                    break;
+                ret+=rec;
+            }
+            return ret;
+        }
+        else
+        {
+            throw std::runtime_error("Unsupported receive pattern");
+        }
+    }
+}
+static void lua_client_send(int server_id,int client_id,std::string data)
+{
+    if(data.size()==0)
+        return;
+    std::map<int,CActiveSocket*>* target=&clients;
+    if(server_id>0)
+    {
+        if(servers.count(server_id)==0)
+        {
+            throw std::runtime_error("Server with this id does not exist");
+        }
+        server &cur_server=servers[server_id];
+        target=&cur_server.clients;
+    }
+
+    if(target->count(client_id)==0)
+    {
+        throw std::runtime_error("Client does with this id not exist");
+    }
+    CActiveSocket *sock=(*target)[client_id];
+    if(sock->Send((const uint8_t*)data.c_str(),data.size())!=data.size())
+    {
+        throw std::runtime_error(translate_socket_error(sock->GetSocketError()));
+    }
+}
+static int lua_socket_connect(std::string ip,int port)
+{
+    static int last_client_id=0;
+    CActiveSocket* sock=new CActiveSocket;
+    if(!sock->Initialize())
+    {
+        CSimpleSocket::CSocketError err=sock->GetSocketError();
+        delete sock;
+        throw std::runtime_error(translate_socket_error(err));
+    }
+    if(!sock->Open((const uint8_t*)ip.c_str(),port))
+    {
+        CSimpleSocket::CSocketError err=sock->GetSocketError();
+        delete sock;
+        throw std::runtime_error(translate_socket_error(err));
+    }
+    last_client_id++;
+    clients[last_client_id]=sock;
+    return last_client_id;
+}
+static void lua_socket_set_timeout(int server_id,int client_id,int32_t sec,int32_t msec)
+{
+    std::map<int,CActiveSocket*>* target=&clients;
+    if(server_id>0)
+    {
+        if(servers.count(server_id)==0)
+        {
+            throw std::runtime_error("Server with this id does not exist");
+        }
+        server &cur_server=servers[server_id];
+        if(client_id==-1)
+        {
+            cur_server.socket->SetConnectTimeout(sec,msec);
+            cur_server.socket->SetReceiveTimeout(sec,msec);
+            cur_server.socket->SetSendTimeout(sec,msec);
+            return;
+        }
+        target=&cur_server.clients;
+    }
+
+    if(target->count(client_id)==0)
+    {
+        throw std::runtime_error("Client does with this id not exist");
+    }
+    CActiveSocket *sock=(*target)[client_id];
+    sock->SetConnectTimeout(sec,msec);
+    sock->SetReceiveTimeout(sec,msec);
+    sock->SetSendTimeout(sec,msec);
+}
 DFHACK_PLUGIN_LUA_FUNCTIONS {
-    DFHACK_LUA_FUNCTION(lua_sock_listen),
-    DFHACK_LUA_FUNCTION(lua_sock_connect),
-    DFHACK_LUA_FUNCTION(lua_sock_disconnect),
+    DFHACK_LUA_FUNCTION(lua_socket_bind), //spawn a server
+    DFHACK_LUA_FUNCTION(lua_socket_connect),//spawn a client (i.e. connection)
+    DFHACK_LUA_FUNCTION(lua_socket_set_timeout),
+    DFHACK_LUA_FUNCTION(lua_server_accept),
+    DFHACK_LUA_FUNCTION(lua_server_close),
+    DFHACK_LUA_FUNCTION(lua_client_close),
+    DFHACK_LUA_FUNCTION(lua_client_send),
+    DFHACK_LUA_FUNCTION(lua_client_receive),
     DFHACK_LUA_END
 };
 DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <PluginCommand> &commands)
@@ -282,51 +334,19 @@ DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <Plug
     
     return CR_OK;
 }
-
-DFhackCExport command_result plugin_onupdate(color_ostream &out)
-{
-    static int last_id=0;
-    if(server)
-    {
-        CActiveSocket* sock=server->Accept();
-        if(sock)
-        {
-            Connection* new_con=new Connection(sock,last_id);
-            clients[last_id]=new_con;
-            CoreSuspendClaimer claim;
-            onNewClient(out,last_id);
-            last_id++;
-            new_con->Start();
-        }
-    }
-    for(auto it=clients.begin();it!=clients.end();)
-    {
-        if(!it->second->isAlive())
-        {
-            CoreSuspendClaimer claim;
-            Connection *todel=it->second;
-            onDisconnect(out,it->first);
-            it=clients.erase(it);
-            delete todel;
-        }
-        else
-            it++;
-    }   
-    return CR_OK;
-}
 DFhackCExport command_result plugin_shutdown ( color_ostream &out )
 {
-    CoreSuspendClaimer claim;
-    if(server)
-    {
-        delete server;
-        server=NULL;
-    }
     for(auto it=clients.begin();it!=clients.end();it++)
     {
-        //onDisconnect(out,it->first);
-        delete it->second;
+        CActiveSocket* sock=it->second;
+        sock->Close();
+        delete sock;
     }
     clients.clear();
+    for(auto it=servers.begin();it!=servers.end();it++)
+    {
+        it->second.close();
+    }
+    servers.clear();
     return CR_OK;
 }
