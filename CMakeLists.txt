@@ -139,6 +139,7 @@ include_directories(depends/tinyxml)
 include_directories(depends/tthread)
 include_directories(${ZLIB_INCLUDE_DIRS})
 include_directories(depends/clsocket/src)
+include_directories(depends/libdasm)
 add_subdirectory(depends)
 
 
