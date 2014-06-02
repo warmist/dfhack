@@ -5,6 +5,7 @@
 #include <PluginManager.h>
 #include <string.h>
 #include <stdexcept>
+#include <map>
 
 #include <VTableInterpose.h>
 
@@ -27,6 +28,7 @@
 #include "LuaTools.h"
 
 #include "modules/EventManager.h"
+#include "modules/Materials.h"
 
 #include "df/job.h"
 #include "df/building.h"
@@ -124,6 +126,7 @@ static void handle_job_complete(color_ostream &out,df::job*){};
 static void handle_constructions(color_ostream &out,df::construction*){};
 static void handle_syndrome(color_ostream &out,int32_t,int32_t){};
 static void handle_inventory_change(color_ostream& out,int32_t,int32_t,df::unit_inventory_item*,df::unit_inventory_item*){};
+static void handle_move_to_ground(color_ostream& out,df::item_actual*,int16_t,int16_t,int16_t){};
 DEFINE_LUA_EVENT_1(onBuildingCreatedDestroyed, handle_int32t, int32_t);
 DEFINE_LUA_EVENT_1(onJobInitiated,handle_job_init,df::job*);
 DEFINE_LUA_EVENT_1(onJobCompleted,handle_job_complete,df::job*);
@@ -133,6 +136,7 @@ DEFINE_LUA_EVENT_1(onConstructionCreatedDestroyed, handle_constructions, df::con
 DEFINE_LUA_EVENT_2(onSyndrome, handle_syndrome, int32_t,int32_t);
 DEFINE_LUA_EVENT_1(onInvasion,handle_int32t,int32_t);
 DEFINE_LUA_EVENT_4(onInventoryChange,handle_inventory_change,int32_t,int32_t,df::unit_inventory_item*,df::unit_inventory_item*);
+DEFINE_LUA_EVENT_4(onItemMoveToGround,handle_move_to_ground,df::item_actual*,int16_t,int16_t,int16_t);
 DFHACK_PLUGIN_LUA_EVENTS {
     DFHACK_LUA_EVENT(onWorkshopFillSidebarMenu),
     DFHACK_LUA_EVENT(postWorkshopFillSidebarMenu),
@@ -152,6 +156,7 @@ DFHACK_PLUGIN_LUA_EVENTS {
     DFHACK_LUA_EVENT(onSyndrome),
     DFHACK_LUA_EVENT(onInvasion),
     DFHACK_LUA_EVENT(onInventoryChange),
+    DFHACK_LUA_EVENT(onItemMoveToGround),
     DFHACK_LUA_END
 };
 
@@ -290,7 +295,7 @@ struct product_hook : item_product {
 
 IMPLEMENT_VMETHOD_INTERPOSE(product_hook, produce);
 
-
+//TODO: liquid_misc, drink, and power_misc (maybe pet too?)
 struct item_hooks :df::item_actual {
         typedef df::item_actual interpose_base;
 
@@ -301,9 +306,29 @@ struct item_hooks :df::item_actual {
             onItemContaminateWound(out,this,unit,wound,a1,a2);
             INTERPOSE_NEXT(contaminateWound)(unit,wound,a1,a2);
         }
-
+        DEFINE_VMETHOD_INTERPOSE(bool,moveToGround,(int16_t x, int16_t y, int16_t z))
+        {
+            CoreSuspendClaimer suspend;
+            color_ostream_proxy out(Core::getInstance().getConsole());
+            onItemMoveToGround(out,this,x,y,z);
+            //change the ethereal items
+            DFHack::MaterialInfo mat(static_cast<df::item*>(this));
+            auto& classes=mat.material->reaction_product;
+            for(size_t i=0;i<classes.id.size();i++)
+            {
+                if(*classes.id[i]=="DROP_ON_FLOOR")
+                {
+                    this->setMaterial(classes.material.mat_type[i]);
+                    this->setMaterialIndex(classes.material.mat_index[i]);
+                    break;
+                }
+            }
+            //
+            return INTERPOSE_NEXT(moveToGround)(x,y,z);
+        }
 };
 IMPLEMENT_VMETHOD_INTERPOSE(item_hooks, contaminateWound);
+IMPLEMENT_VMETHOD_INTERPOSE(item_hooks, moveToGround);
 
 struct proj_item_hook: df::proj_itemst{
     typedef df::proj_itemst interpose_base;
@@ -394,11 +419,11 @@ static bool find_reactions(color_ostream &out)
 
     return !products.empty();
 }
-
 static void enable_hooks(bool enable)
 {
     INTERPOSE_HOOK(workshop_hook,fillSidebarMenu).apply(enable);
     INTERPOSE_HOOK(item_hooks,contaminateWound).apply(enable);
+    INTERPOSE_HOOK(item_hooks,moveToGround).apply(enable);
     INTERPOSE_HOOK(proj_unit_hook,checkImpact).apply(enable);
     INTERPOSE_HOOK(proj_unit_hook,checkMovement).apply(enable);
     INTERPOSE_HOOK(proj_item_hook,checkImpact).apply(enable);
