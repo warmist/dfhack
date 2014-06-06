@@ -878,8 +878,8 @@ end
 
 actions={
     {"CarveFortification"   ,df.job_type.CarveFortification,{IsWall,IsHardMaterial}},
-    {"DetailWall"           ,df.job_type.DetailWall,{MakePredicateWieldsItem(df.job_skill.MINING),IsWall,IsHardMaterial}},
-    {"DetailFloor"          ,df.job_type.DetailFloor,{MakePredicateWieldsItem(df.job_skill.MINING),IsFloor,IsHardMaterial,SameSquare}},
+    {"DetailWall"           ,df.job_type.DetailWall,{IsWall,IsHardMaterial}},
+    {"DetailFloor"          ,df.job_type.DetailFloor,{IsFloor,IsHardMaterial,SameSquare}},
     {"CarveTrack"           ,df.job_type.CarveTrack,{MakePredicateWieldsItem(df.job_skill.MINING),IsFloor,IsHardMaterial}
                             ,{SetCarveDir}}, 
     {"Dig"                  ,df.job_type.Dig,{MakePredicateWieldsItem(df.job_skill.MINING),IsWall}},
