@@ -1278,7 +1278,7 @@ command_result df_strangemood (color_ostream &out, vector <string> & parameters)
     unit->path.dest.x = -30000;
     unit->path.dest.y = -30000;
     unit->path.dest.z = -30000;
-    unit->path.unk_ae = -1;
+    unit->path.goal = unit_path_goal::None;
     unit->path.path.x.clear();
     unit->path.path.y.clear();
     unit->path.path.z.clear();
@@ -1287,7 +1287,7 @@ command_result df_strangemood (color_ostream &out, vector <string> & parameters)
     ref->setID(unit->id);
     job->general_refs.push_back(ref);
     unit->job.current_job = job;
-    job->unk10b_cntdn = 0;
+    job->wait_timer = 0;
 
     // Generate the artifact's name
     if (type == mood_type::Fell || type == mood_type::Macabre)

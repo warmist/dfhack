@@ -28,15 +28,15 @@ All new releases are announced in the bay12 thread: http://tinyurl.com/dfhack-ng
 =============
 Compatibility
 =============
-DFHack works on Windows XP, Vista, 7 or any modern Linux distribution.
-OSX is not supported due to lack of developers with a Mac.
+DFHack works on Windows XP, Vista, 7, any modern Linux distribution, or OS X
+10.6.8-10.9.
 
 Currently, version 0.34.11 is supported (and tested). If you need DFHack
 for older versions, look for older releases.
 
 On Windows, you have to use the SDL version of DF.
 
-It is possible to use the Windows DFHack under wine/OSX.
+It is also possible to use the Windows DFHack with Wine under Linux and OS X.
 
 ====================
 Installation/Removal
@@ -328,6 +328,34 @@ Options:
  :rename building "name": Set a custom name for the selected building.
                           The building must be one of stockpile, workshop, furnace, trap,
                           siege engine or an activity zone.
+
+command-prompt
+--------------
+A one line command prompt in df. Same as entering command into dfhack console. Best 
+used as a keybinding. Can be called with optional "entry" that will start prompt with 
+that pre-filled.
+
+.. image:: images/command-prompt.png
+
+rendermax
+---------
+A collection of renderer replacing/enhancing filters. For better effect try changing the
+black color in palette to non totally black. For more info see thread in forums:
+http://www.bay12forums.com/smf/index.php?topic=128487.0
+
+Options:
+
+ :rendermax trippy: Randomizes each tiles color. Used for fun mainly.
+ :rendermax light:  Enable lighting engine.
+ :rendermax light reload: Reload the settings file.
+ :rendermax light sun <x>|cycle: Set time to <x> (in hours) or set it to df time cycle.
+ :rendermax occlusionON|occlusionOFF: Show debug occlusion info.
+ :rendermax disable: Disable any filter that is enabled.
+
+An image showing lava and dragon breath. Not pictured here: sunlight, shining items/plants,
+materials that color the light etc...
+
+.. image:: images/rendermax.png
 
 
 Adventure mode
@@ -701,8 +729,7 @@ Subcommands:
  :create: Create a new shrub/sapling.
  :grow: Make saplings grow into trees.
  :extirpate: Kills trees and shrubs, turning them into ashes instantly.
- :immolate: Similar to extirpate, but sets the plants on fire instead. The
-fires can and *will* spread ;)
+ :immolate: Similar to extirpate, but sets the plants on fire instead. The fires can and *will* spread ;)
 
 ``create`` creates a new sapling under the cursor. Takes a raw ID as
 argument (e.g. TOWER_CAP). The cursor must be located on a dirt or grass
@@ -712,6 +739,7 @@ floor tile.
 Works on all shrubs of the map if the cursor is hidden.
 
 ``extirpate`` and ``immolate`` work only on the plant under the cursor.
+
 For mass effects, use one of the additional options:
  :shrubs:            affect all shrubs on the map
  :trees:             affect all trees on the map
@@ -1364,6 +1392,11 @@ Subcommands that persist until disabled or DF quit:
 :hive-crash: The hive code crashes if there are ungathered products in a hive without bees (bug 6368).
              This tweak prevents it by auto-gathering the products if this happens.
 
+:craft-age-wear: Fixes the behavior of crafted items wearing out over time (bug 6003).
+                 With this tweak, items made from cloth and leather will gain a level of wear every 20 years.
+
+:adamantine-cloth-wear: Prevents adamantine clothing from wearing out while being worn (bug 6481).
+
 fix-armory
 ----------
 
@@ -1494,6 +1527,15 @@ dwarfexport
 -----------
 Export dwarves to RuneSmith-compatible XML.
 
+exportlegends
+-------------
+Exports data from legends mode; allowing a set-and-forget export of large worlds.  
+
+Options:
+
+ :maps: Exports all fifteen detailed maps
+ :all: first exports the world/gen info, then the XML, then all detailed maps
+
 
 Job management
 ==============
@@ -1534,6 +1576,29 @@ job-duplicate
 Duplicate the selected job in a workshop:
  * In 'q' mode, when a job is highlighted within a workshop or furnace building,
    instantly duplicates the job.
+
+stockflow
+---------
+Allows the fortress bookkeeper to queue jobs through the manager.
+
+Usage:
+
+ ``stockflow enable``
+    Enable the plugin.
+ ``stockflow disable``
+    Disable the plugin.
+ ``stockflow list``
+    List any work order settings for your stockpiles.
+ ``stockflow status``
+    Display whether the plugin is enabled.
+
+While enabled, the 'q' menu of each stockpile will have two new options:
+  * j: Select a job to order, from an interface like the manager's screen.
+  * J: Cycle between several options for how many such jobs to order.
+
+Whenever the bookkeeper updates stockpile records, new work orders will
+be placed on the manager's queue for each such selection, reduced by the
+number of identical orders already in the queue.
 
 workflow
 --------
@@ -1926,6 +1991,29 @@ another savegame you can use the command list_export:
      autobutcher.bat
 
 
+autochop
+---------
+Automatically manage tree cutting designation to keep available logs withing given
+quotas.
+
+Open the dashboard by running:
+::  
+
+     getplants autochop
+
+The plugin must be activated (with 'a') before it can be used. You can then set logging quotas
+and restrict designations to specific burrows (with 'Enter') if desired. The plugin's activity
+cycle runs once every in game day.
+
+If you add
+::
+
+      enable getplants
+      
+to your dfhack.init there will be a hotkey to open the dashboard from the chop designation
+menu.
+
+
 autolabor
 ---------
 Automatically manage dwarf labors.
@@ -1992,6 +2080,11 @@ Options:
 
 Known limitations: if the selected unit is currently performing a job, the mood will not be started.
 
+log-region
+----------
+When enabled in dfhack.init, each time a fort is loaded identifying information will be written to the gamelog.  Assists in parsing the file if you switch between forts, and adds information for story-building. 
+
+
 =======
 Scripts
 =======
@@ -2041,6 +2134,13 @@ Scripts in this subdirectory fix various bugs and issues, some of them obscure.
   in memory and patching up some invalid reference fields. Needs to be run
   every time a save game is loaded; putting ``fix/cloth-stockpile enable``
   in ``dfhack.init`` makes it run automatically.
+
+* fix/build-location
+
+  Fixes construction jobs that are stuck trying to build a wall while standing
+  on the same exact tile (bug 5991), designates the tile restricted traffic to
+  hopefully avoid jamming it again, and unsuspends them.
+
 
 gui/*
 =====
@@ -2321,6 +2421,10 @@ alternatively pass cage IDs as arguments::
 
   stripcaged weapons 25321 34228
 
+undump-buildings
+================
+Undesignates building base materials for dumping.
+
 create-items
 ============
 Spawn arbitrary items under the cursor.
@@ -2381,6 +2485,10 @@ dfhack commands. Useful for hotkeys.
 
 Example::
     multicmd locate-ore iron ; digv
+
+dfstatus
+========
+Show a quick overview of critical stock quantities, including food, dirnks, wood, and various bars.  
 
 =======================
 In-game interface tools
@@ -2636,6 +2744,16 @@ Rationale: individual choice seems to be unreliable when there is a weapon short
 and may lead to inappropriate weapons being selected.
 
 
+gui/clone-uniform
+=================
+
+Bind to a key (the example config uses Ctrl-C), and activate in the Uniforms
+page of the military screen with the cursor in the leftmost list.
+
+When invoked, the script duplicates the currently selected uniform template,
+and selects the newly created copy.
+
+
 gui/guide-path
 ==============
 
@@ -2805,11 +2923,21 @@ keybinding. (e.g. keybinding set Ctrl-T gui/advfort). Possible arguments:
   
 * job - selects that job (e.g. Dig or FellTree)
 
+An example of player digging in adventure mode:
+
+.. image:: images/advfort.png
+
+.. admonition:: DISCLAIMER
+
+    advfort changes only persist in non procedural sites. Namely: player forts, caves, camps.
+
 gui/companion-order
 ===================
 
 A script to issue orders for companions. Select companions with lower case chars, issue orders with upper 
 case. Must be in look or talk mode to issue command on tile.
+
+.. image:: images/companion-order.png
 
 * move - orders selected companions to move to location. If companions are following they will move no more than 3 tiles from you.
 * equip - try to equip items on the ground.
@@ -2819,7 +2947,6 @@ case. Must be in look or talk mode to issue command on tile.
 * wait - temporarily remove from party
 * follow - rejoin the party after "wait"
 * leave - remove from party (can be rejoined by talking)
-
 
 gui/gm-editor
 =============
@@ -2835,8 +2962,20 @@ There are three ways to open this editor:
 * using gui/gm-editor dialog - shows an in game dialog to input lua command. Works
   the same as version above.
   
+.. image:: images/gm-editor.png
+
 This editor allows to change and modify almost anything in df. Press '?' for an 
 in-game help.
+
+gui/mod-manager
+===============
+
+A way to simply install and remove small mods. It looks for specially formatted mods in
+df subfolder 'mods'. Mods are not included, for example mods see: `github mini mod repository <https://github.com/warmist/df-mini-mods>`_
+
+.. image:: images/mod-manager.png
+
+
 
 =============
 Behavior Mods

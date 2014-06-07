@@ -1307,6 +1307,10 @@ static const LuaWrapper::FunctionReg dfhack_gui_module[] = {
     WRAPM(Gui, getSelectedUnit),
     WRAPM(Gui, getSelectedItem),
     WRAPM(Gui, getSelectedBuilding),
+    WRAPM(Gui, writeToGamelog),
+    WRAPM(Gui, makeAnnouncement),
+    WRAPM(Gui, addCombatReport),
+    WRAPM(Gui, addCombatReportAuto),
     WRAPM(Gui, showAnnouncement),
     WRAPM(Gui, showZoomAnnouncement),
     WRAPM(Gui, showPopupAnnouncement),
@@ -1327,10 +1331,13 @@ static const LuaWrapper::FunctionReg dfhack_job_module[] = {
     WRAPM(Job,getSpecificRef),
     WRAPM(Job,getHolder),
     WRAPM(Job,getWorker),
+    WRAPM(Job,setJobCooldown),
+    WRAPM(Job,removeWorker),
     WRAPM(Job,checkBuildingsNow),
     WRAPM(Job,checkDesignationsNow),
     WRAPM(Job,isSuitableItem),
     WRAPM(Job,isSuitableMaterial),
+    WRAPM(Job,getName),
     WRAPN(is_equal, jobEqual),
     WRAPN(is_item_equal, jobItemEqual),
     { NULL, NULL }
@@ -1387,6 +1394,7 @@ static const LuaWrapper::FunctionReg dfhack_units_module[] = {
     WRAPM(Units, getEffectiveSkill),
     WRAPM(Units, getExperience),
     WRAPM(Units, computeMovementSpeed),
+    WRAPM(Units, computeSlowdownFactor),
     WRAPM(Units, getProfessionName),
     WRAPM(Units, getCasteProfessionName),
     WRAPM(Units, getProfessionColor),
@@ -1468,6 +1476,8 @@ static const LuaWrapper::FunctionReg dfhack_items_module[] = {
     WRAPM(Items, isCasteMaterial),
     WRAPM(Items, getSubtypeCount),
     WRAPM(Items, getSubtypeDef),
+    WRAPM(Items, getItemBaseValue),
+    WRAPM(Items, getValue),
     WRAPN(moveToGround, items_moveToGround),
     WRAPN(moveToContainer, items_moveToContainer),
     WRAPN(moveToBuilding, items_moveToBuilding),
@@ -2202,7 +2212,21 @@ static int internal_diffscan(lua_State *L)
     lua_pushnil(L);
     return 1;
 }
-
+static int internal_getDir(lua_State *L)
+{
+    luaL_checktype(L,1,LUA_TSTRING);
+    std::string dir=lua_tostring(L,1);
+    std::vector<std::string> files;
+    DFHack::getdir(dir,files);
+    lua_newtable(L);
+    for(int i=0;i<files.size();i++)
+    {
+        lua_pushinteger(L,i+1);
+        lua_pushstring(L,files[i].c_str());
+        lua_settable(L,-3);
+    }
+    return 1;
+}
 static const luaL_Reg dfhack_internal_funcs[] = {
     { "getAddress", internal_getAddress },
     { "setAddress", internal_setAddress },
@@ -2215,6 +2239,7 @@ static const luaL_Reg dfhack_internal_funcs[] = {
     { "memcmp", internal_memcmp },
     { "memscan", internal_memscan },
     { "diffscan", internal_diffscan },
+    { "getDir", internal_getDir },
     { NULL, NULL }
 };
 
