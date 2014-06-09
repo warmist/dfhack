@@ -11,16 +11,17 @@ local ViewControl=require('hack.scripts.multiplay.control_view_free').control_vi
 clientView=defclass(clientView,gui.FramedScreen)
 clientView.ATTRS={
 	frame_title = "Online Client",
+	frame_background=nil
 }
 	
 function clientView:init(args)
 	self:addviews{
-		widgets.Panel{
+		--[[widgets.Panel{
 			frame = { l = 0,b=8, r=20 },
 			view_id='screen',
-		},
+		},--]]
 		widgets.Panel{
-			frame = { b = 0 , h=8 },
+			frame = { b = 0 , h=1 },
 			subviews={
 				
 				widgets.EditField{
@@ -30,27 +31,34 @@ function clientView:init(args)
 				}
 			}
 	}
-	self.view=ViewControl{} 
+	self.view=ViewControl{readyFunction=self:callback("renderLater")} 
 	self.base=clientBase{initControls={self.view}} 
 	self.view.buffer=self.base.buffer
 	self.base.onDoneInit=function()
 		self.base:sendLogin("user","password")
-		self.view:set_viewscreen(gui.mkdims_wh(0,0,20,20),0)
+		self.view:set_viewscreen(gui.mkdims_wh(0,0,20,20),4)
 		self.view:render() -- start the rendering!
 	end
+	self.redraw=false
 	self.base:sendVersion() -- a fix for chicken and egg problem
+end
+function clientView:renderLater( screen )
+	self.redraw=true
+	self.trg_screen=screen
 end
 --[[function clientView:onResize(w,h)
 	self.view:set_viewscreen(gui.mkdims_wh(0,0,w,h),0)
 end]]
-function clientView:onRenderBody(painter)
-	if not self.base.dirty then
-		return
-	end
-	local sc=self.base.screen
+function clientView:onRenderBody(dc)
+	--if not self.redraw then
+	--	return
+	--end
+
+	local sc=self.view.screen
 	if sc==nil then
 		return
 	end
+
 	local w=sc.w
 	local h=sc.h
 	for i=0,w do
@@ -62,8 +70,11 @@ function clientView:onRenderBody(painter)
 		end
 	end
 	end
-	self.base.dirty=false
+	self.redraw=false
 	self.view:render() --ask for next frame
+end
+function clientView:onIdle()
+	self.base:tick()
 end
 function clientView:onInput(keys)
 	if keys.STRING_A096 then -- '`'
@@ -72,7 +83,7 @@ function clientView:onInput(keys)
 		if keys.SELECT then
 			self.base.buffer:reset()
 			self.base.buffer:append("Hello world")
-			self.base.buffer:send(-1)
+			self.base.buffer:send()
 		end
 		--self:inputToSubviews(keys)
 		--printall(keys)

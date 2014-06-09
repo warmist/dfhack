@@ -11,8 +11,10 @@ client=defclass(client)
 client.ATTRS={
 	initControls=DEFAULT_NIL,
 	controls=DEFAULT_NIL,
+	controls_by_id={},
 	host="localhost",
-	socket=1444
+	socket=1444,
+	alive=true
 }
 function client:chat(buf)
 	print("chat:"..buf:extract('string'))
@@ -31,14 +33,15 @@ function client:version(buf)
 	--print("Supported modules:")
 	self:sendVersion()
 end
-function client:received(id,size,data)
+function client:received()
 	local buf=self.buffer
 	
-	buf:receive(data,size)
 	local msgType=buf:extract()
-	print(id, "recieved", size,"bytes", "msg type=",msgType)
+	print("Recieved", buf:size(),"bytes", "msg type=",msgType)
 	if self.controls[msgType] then
 		self.controls[msgType].fun(buf)
+	else
+		print("unsuported msg:",msgType)
 	end
 end
 
@@ -48,9 +51,12 @@ end
 
 function client:init(args)
 	self.buffer=buffer{bufferSize=255}
-	socket.onDataRecieved.multiplay=self:callback("received")
-	socket.onDisconnect.multiplay=self:callback("disconnected")
-	socket.lua_sock_connect(self.host,self.socket)
+
+	--socket.onDataRecieved.multiplay=self:callback("received")
+	--socket.onDisconnect.multiplay=self:callback("disconnected")
+	self.sock=socket.tcp:connect(self.host,self.socket)
+	self.buffer.client=self.sock
+
 	self.controls=self.controls or {}
 	self.controls[messages.CHAT]={fun=self:callback("chat")}
 	
@@ -59,35 +65,47 @@ function client:init(args)
 	self.controls[messages.ERROR_FATAL]={fun=self:callback("info")}
 	self.controls[messages.VERSION]={fun=self:callback("version")}
 	for k,control in pairs(self.initControls or {}) do
+		print("Adding control:",k)
 		self:addControl(control)
 	end
 end
 function client:addControl(control)
+	table.insert(self.controls_by_id,control.ID)
 	for id,fun in pairs(control.supports()) do
 		self.controls[id]={c=control,fun=dfhack.curry(fun,control)}
 	end
 end
 function client:sendLogin(name,pass)
 	local buf=self.buffer
+	buf:reset()
 	buf:append(messages.LOGIN)
 	buf:append(name)
 	buf:append(pass)
-	buf:send(-1)
+	buf:send()
 end
 function client:sendVersion()
 	local buf=self.buffer
+	buf:reset()
 	buf:append(messages.VERSION)
 	buf:append(PROTOCOL_VERSION)
-	buf:append(#self.controls)
-	for k,v in ipairs(self.controls) do
-		buf:append(v.ID)
+	buf:append(#self.controls_by_id)
+	print("initing control count:",#self.controls_by_id)
+	for _,id in ipairs(self.controls_by_id) do
+		buf:append(id)
 	end
-	buf:send(-1)
+	buf:send()
 	if self.onDoneInit then
 		self.onDoneInit()
 	end
 end
 function client:shutdown()
-	socket.lua_sock_disconnect(-1)
+	self.sock:close()
+	self.alive=false
+end
+function client:tick( )
+	local size=self.buffer:receive()
+	if size then
+		self:received()
+	end
 end
 return _ENV

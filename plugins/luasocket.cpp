@@ -147,7 +147,7 @@ static int lua_server_accept(int id,bool fail_on_timeout)
     CActiveSocket* sock=cur_server.socket->Accept();
     if(!sock)
     {
-        handle_error(sock->GetSocketError(),!fail_on_timeout);
+        handle_error(cur_server.socket->GetSocketError(),!fail_on_timeout);
         return 0;
     }
     else
@@ -198,7 +198,8 @@ static std::string lua_client_receive(int server_id,int client_id,int bytes,std:
     {
         if(sock->Receive(bytes)<=0)
         {
-            throw std::runtime_error(translate_socket_error(sock->GetSocketError()));
+            handle_error(sock->GetSocketError(),!fail_on_timeout);
+            return "";//TODO what todo on partial string
         }
         return std::string((char*)sock->GetData(),bytes);
     }
@@ -246,7 +247,7 @@ static std::string lua_client_receive(int server_id,int client_id,int bytes,std:
         }
     }
 }
-static void lua_client_send(int server_id,int client_id,std::string data)
+static void lua_client_send(int server_id,int client_id,std::string data,bool fail_on_timeout)
 {
     if(data.size()==0)
         return;
@@ -268,8 +269,39 @@ static void lua_client_send(int server_id,int client_id,std::string data)
     CActiveSocket *sock=(*target)[client_id];
     if(sock->Send((const uint8_t*)data.c_str(),data.size())!=data.size())
     {
-        throw std::runtime_error(translate_socket_error(sock->GetSocketError()));
+        handle_error(sock->GetSocketError(),!fail_on_timeout);
     }
+}
+static int lua_client_send_raw(lua_State* L)
+{
+    int server_id=luaL_checkint(L,1);
+    int client_id=luaL_checkint(L,2);
+    const uint8_t* data=Lua::CheckDFObject<uint8_t>(L,3,true);
+    int size=luaL_checkint(L,4);
+    bool fail_on_timeout=lua_toboolean(L,5);
+    if(size==0)
+        return 0;
+    std::map<int,CActiveSocket*>* target=&clients;
+    if(server_id>0)
+    {
+        if(servers.count(server_id)==0)
+        {
+            throw std::runtime_error("Server with this id does not exist");
+        }
+        server &cur_server=servers[server_id];
+        target=&cur_server.clients;
+    }
+
+    if(target->count(client_id)==0)
+    {
+        throw std::runtime_error("Client does with this id not exist");
+    }
+    CActiveSocket *sock=(*target)[client_id];
+    if(sock->Send(data,size)!=size)
+    {
+        handle_error(sock->GetSocketError(),!fail_on_timeout);
+    }
+    return 0;
 }
 static int lua_socket_connect(std::string ip,int port)
 {
@@ -321,6 +353,10 @@ static void lua_socket_set_timeout(int server_id,int client_id,int32_t sec,int32
     sock->SetReceiveTimeout(sec,msec);
     sock->SetSendTimeout(sec,msec);
 }
+DFHACK_PLUGIN_LUA_COMMANDS{
+    DFHACK_LUA_COMMAND(lua_client_send_raw),
+    DFHACK_LUA_END
+};
 DFHACK_PLUGIN_LUA_FUNCTIONS {
     DFHACK_LUA_FUNCTION(lua_socket_bind), //spawn a server
     DFHACK_LUA_FUNCTION(lua_socket_connect),//spawn a client (i.e. connection)

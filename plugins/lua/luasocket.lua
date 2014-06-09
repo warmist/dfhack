@@ -6,13 +6,11 @@ for k,v in pairs(_ENV) do
         _ENV[k]=nil
     end
 end
-
 local socket=defclass(socket)
 socket.ATTRS={
     server_id=-1,
     client_id=-1,
 }
-
 function socket:close(  )
     if self.client_id==-1 then
         _funcs.lua_server_close(self.server_id)
@@ -26,10 +24,18 @@ function socket:setTimeout( sec,msec )
 end
 
 local client=defclass(client,socket)
+function client:init(args )
+    local m=getmetatable(self)
+    m.__gc=function(obj)
+        print("collecting",self.server_id,self.client_id)
+        obj:close()
+    end
+    setmetatable(self,m)
+end
 function client:receive( pattern )
     local pattern=pattern or "*l"
     local bytes=-1
-    if type(pattern)== number then
+    if type(pattern)== "number" then
         bytes=pattern
     end
     local ret=_funcs.lua_client_receive(self.server_id,self.client_id,bytes,pattern,false)
@@ -39,15 +45,19 @@ function client:receive( pattern )
         return ret
     end
 end
-function client:send( data )
-    _funcs.lua_client_send(self.server_id,self.client_id,data)
+function client:send( data ,size)
+    if type(data)=="string" then
+        _funcs.lua_client_send(self.server_id,self.client_id,data,false)
+    else
+        _funcs.lua_client_send_raw(self.server_id,self.client_id,data,size,false)
+    end
 end
 
 
 local server=defclass(server,socket)
 function server:accept()
     local id=_funcs.lua_server_accept(self.server_id,false)
-    if id~=nil then
+    if id~=0 then
         return client{server_id=self.server_id,client_id=id}
     else
         return 

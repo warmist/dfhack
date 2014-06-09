@@ -177,14 +177,14 @@ void Offscreen::drawBuffer( rect2d window,int z,std::vector<screenTile>& buffer 
 
     //TODO static array of images for each tiletype
     MapExtras::MapCache cache;
-    int w=window.second.x-window.first.x;
-    int h=window.second.y-window.first.y;
-    rect2d localWindow=mkrect_wh(0,0,w+1,h+1);
+    int w=window.second.x-window.first.x+1;
+    int h=window.second.y-window.first.y+1;
+    rect2d localWindow=mkrect_wh(0,0,w,h);
     if(buffer.size()!=w*h)
         buffer.resize(w*h);
     //basic tiletype stuff here
-    for(int x=window.first.x;x<window.second.x;x++) //todo, make it by block, minimal improvement over cache prob though
-        for(int y=window.first.y;y<window.second.y;y++)
+    for(int x=window.first.x;x<=window.second.x;x++) //todo, make it by block, minimal improvement over cache prob though
+        for(int y=window.first.y;y<=window.second.y;y++)
         {
             DFCoord coord(x,y,z);
             df::tiletype tt=cache.tiletypeAt(coord);

@@ -1,4 +1,5 @@
 -- a free view observer
+local gui=require("gui")
 local _ENV = mkmodule('hack.scripts.multiplay.control_view_free')
 local offscreen= require 'plugins.offscreen'
 
@@ -23,7 +24,7 @@ function control_view.server:init(args)
 	end
 	server_saved_views[args.player.name]=server_saved_views[args.player.name] or {}
 	self.view=server_saved_views[args.player.name]
-	self.buffer=args.player.buffer or buffer{bufferSize=255*255*7}
+	self.buffer=args.player.buffer or buffer{bufferSize=255*255*7,client=args.player.client}
 end
 
 function control_view.server:set_view(rect,z)
@@ -59,7 +60,7 @@ local function appendScreen(screen,w,h,buf)
 	for x=0,w-1 do
 	for y=0,h-1 do
 		local idx=(x)*h+(y)
-		local bufIdx=idx*7+offset
+		--local bufIdx=idx*7+offset
 		if screen[idx] then
 			buf:append(screen[idx].tile,32)
 			buf:append(screen[idx].fg)
@@ -77,12 +78,14 @@ function control_view.server:serve_view()
 	local buf=self.buffer
 	local w=self.view.width
 	local h=self.view.height
+	buf:reset()
 	buf:append(messages.VIEWSCREEN_UPDATE)
 	buf:append(w,16)
 	buf:append(h,16)
 	local offBuf=offscreen.draw(self.view,self.view.z)
 	appendScreen(offBuf,w,h,buf)
-	buf:send(self.player.id)
+	print("sending screen:",w,h,w*h*7,#offBuf*7)
+	buf:send(self.player.client)
 end
 -- a few functions that parse recieved messages
 function control_view.server:msg_viewscreen_set(buf)
@@ -92,7 +95,7 @@ function control_view.server:msg_viewscreen_set(buf)
 	x2=buf:extract(nil,16)
 	y2=buf:extract(nil,16)
 	z=buf:extract(nil,16)
-	local rect=mkdims_xy(x1,y1,x2,y2)
+	local rect=gui.mkdims_xy(x1,y1,x2,y2)
 	self:set_view(rect,z) 
 	
 	if not RESEND_ON_CHANGE then
@@ -129,29 +132,33 @@ control_view.client.ATTRS={
 
 function control_view.client:set_viewscreen(rect,z)
 	local buf=self.buffer
+	buf:reset()
 	buf:append(messages.VIEWSCREEN_SET)
 	buf:append(rect.x1,16)
 	buf:append(rect.y1,16)
 	buf:append(rect.x2,16)
 	buf:append(rect.y2,16)
 	buf:append(z,16)
-	buf:send(-1)
+	buf:send()
 end
 function control_view.client:move_viewscreen(dx,dy,dz)
 	local buf=self.buffer
+	buf:reset()
 	buf:append(messages.VIEWSCREEN_MOVE)
 	buf:append(dx,16)
 	buf:append(dy,16)
 	buf:append(dz,16)
-	buf:send(-1)
+	buf:send()
 end
 function control_view.client:render()
 	local buf=self.buffer
+	buf:reset()
 	buf:append(messages.VIEWSCREEN_UPDATE)
 	self.dirty=false
-	buf:send(-1)
+	buf:send()
 end
 function control_view.client:msg_viewscreen_update(buf)
+	print("updating screenbuf")
 	self.dirty=true
 	local screen=self.screen or {}
 	local w=buf:extract(nil,16)
@@ -161,11 +168,12 @@ function control_view.client:msg_viewscreen_update(buf)
 	for x=0,w-1 do
 	for y=0,h-1 do
 		local idx=(x)*h+(y)
-		screen[idx]={tile=buf:extract(32),fg=buf:extract(),bg=buf:extract(),bold=buf:extract()}
+		screen[idx]={tile=buf:extract(nil,32),fg=buf:extract(),bg=buf:extract(),bold=buf:extract()}
 	end
 	end
 	self.screen=screen
 	if self.readyFunction then
+		print("calling ready!")
 		self.readyFunction(screen)
 	end
 end

@@ -2,21 +2,27 @@
 local _ENV = mkmodule('hack.scripts.multiplay.buffer')
 local socket=require("plugins.luasocket")
 -- TODO nul terminated strings is good or not?
+
 buffer=defclass(buffer)
 buffer.ATTRS={
 	msgBuf=DEFAULT_NIL,
 	recBuf=DEFAULT_NIL,
-	bufferSize=255, --or maxSize
-	offset=0,
-	readOffset=0
+	bufferSize=3000, --or maxSize
+	offset=0, --non 0 because of buffer size prefix --TODO fix string mode!
+	readOffset=0,
+	client=DEFAULT_NIL,
+	mode=DEFAULT_NIL
 }
 function buffer:init(args)
-	self.msgBuf=df.new("uint8_t",self.bufferSize)
-	setmetatable(self,{
-		__gc=function(obj)
-			print("GC collected:"..obj.bufferSize)
-			df.delete(obj.msgBuf)
-		end,__index=buffer})
+	if self.msgBuf==nil then
+		self.msgBuf=df.new("uint8_t",self.bufferSize)
+		setmetatable(self,{
+			__gc=function(obj)
+				print("GC collected:"..obj.bufferSize)
+				df.delete(obj.msgBuf)
+			end,__index=buffer})
+	end
+	self:reset()
 end
 function buffer:splitInt16(number,tbl,offset)
 	tbl=tbl or {}
@@ -76,14 +82,26 @@ function buffer:insertStr(str,offset)
 end
 function buffer:append(data,intSize)
 	if type(data)=='string' then
+		if self.offset+#data>=self.bufferSize then
+			error("buffer overflow")
+		end
 		self.offset=self:insertStr(data,self.offset)
 	elseif type(data)=='number' and (intSize==nil or intSize==8) then
+		if self.offset+1>=self.bufferSize then
+			error("buffer overflow")
+		end
 		self.msgBuf[self.offset]=data
 		self.offset=self.offset+1
 	elseif type(data)=='number' and intSize==16 then
+		if self.offset+2>=self.bufferSize then
+			error("buffer overflow")
+		end
 		self:splitInt16(data,self.msgBuf,self.offset)
 		self.offset=self.offset+2
 	elseif type(data)=='number' and intSize==32 then
+		if self.offset+4>=self.bufferSize then
+			error("buffer overflow")
+		end
 		self:splitInt32(data,self.msgBuf,self.offset)
 		self.offset=self.offset+4
 	else
@@ -121,23 +139,60 @@ function buffer:extract(dataType,intSize,peek)
 		error("unsupported type")
 	end
 end
-function buffer:reset()
-	print("BUFFER| reset",self.offset,self.readOffset)
+function buffer:reset(stringmode)
+	--print("BUFFER| reset",self.offset,self.readOffset)
 	self.offset=0
 	self.readOffset=0
-end
-function buffer:receive(data,size)
-	self:reset()
-	print("BUFFER| received:",size)
-	for i=0,size-1 do
-		print(data[i])
+	if not stringmode then
+		self:append(0,32)
 	end
-	self.recBuf=data
-	self.readOffset=0
 end
-function buffer:send(id)
+function buffer:receive(client,stringmode) --can be improved with better buffers!
+	self:reset(stringmode)
+	client=client or self.client
+	stringmode=stringmode or self.mode
+	if stringmode then
+		local data={}
+		local s=client:receive()
+		print("receive:",s)
+		for i=1,#s do
+			data[i-1]=string.byte(s,i)
+		end
+		self.recBuf=data
+		self.readOffset=0
+	else
+		local s=client:receive(4) -- get buf size
+		if s==nil then
+			return
+		end
+		local size=self:collectInt32({s:byte(1,4)},1)
+		print("receive header",size)
+		if size<=0 then
+			error("invalid packet size")
+		end
+		local ss=self.client:receive(size)
+		if ss==nil then
+			error("partial read")
+		end
+		
+		print("received body:")
+		self.recBuf=self.recBuf or {}
+		for i=1,#ss do
+			self.recBuf[i-1]=string.byte(ss,i)
+		end
+		self.readOffset=0
+	end
+	return #self.recBuf
+end
+function buffer:size( )
+	return #self.recBuf,self.offset
+end
+function buffer:send(client)
 	print("BUFFER| sending:",self.offset)
-	socket.lua_sock_send(id,self.offset,self.msgBuf)
+	client=client or self.client
+	--self.msgBuf[0]=self.offset-1
+	self:splitInt32(self.offset-4,self.msgBuf)
+	client:send(self.msgBuf,self.offset)
 	self:reset()
 end
 
