@@ -14,6 +14,7 @@ local TILESIZE=4+1+1+1
 local buffer=require('hack.scripts.multiplay.buffer').buffer
 local messages=require('hack.scripts.multiplay.messages').MSG_TYPES
 local PROTOCOL_VERSION=require('hack.scripts.multiplay.messages').PROTOCOL_VERSION
+local mods=require('hack.scripts.multiplay.modules')
 server=defclass(server)
 server.ATTRS={
 	controls=DEFAULT_NIL,
@@ -31,16 +32,20 @@ function server:init(args)
 	end
 end
 function server:tick()
+	--accept all new clients
 	repeat
 		local client=self.sock:accept()
 		if client then
 			self:newClient(client)
 		end
 	until client==nil
+	--do module ticks
+	--TODO
+	--process received messages
 	for client,_ in pairs(self.clients) do
 		local ok=dfhack.safecall(self:callback("tryReceive",client))
 		if not ok then
-			self.clients[client]=nil
+			self:disconnect(client)
 		end
 	end
 end
@@ -90,7 +95,7 @@ function server:initClient(client,buf)
 	for i=1,numControls do
 		local ctrlId=buf:extract()
 		print("Loading control id=",ctrlId)
-		local control=self.controls_by_id[ctrlId]
+		local control=self.controls_by_id[ctrlId] --TODO replace by func from modules
 		if control==nil then
 			qerror("Unsupported control id:",tostring(ctrlId))
 		end
@@ -107,7 +112,7 @@ function server:login(client,buf)
 	if players[name]==nil or players[name]==pass then
 		self.clients[client].player={name=name,id=client.client_id,buffer=self.buf,client=client}
 		for k,v in pairs(self.clients[client].controls) do
-			v.obj=v.class{player=self.clients[client].player}
+			v.obj=v.class{player=self.clients[client].player,server=self}
 		end
 		players[name]=pass
 	else
@@ -155,8 +160,7 @@ function server:shutdown()
 	self.alive=false
 end
 
--- INSERT CONTROLS HERE:
-local ctrl_view_free=require('hack.scripts.multiplay.control_view_free').control_view.server
+
 if args[1] and args[1]=="shutdown" then
 	if serverInstance then
 		serverInstance:shutdown()
@@ -167,7 +171,12 @@ else
 		serverInstance:shutdown()
 		serverInstance=nil
 	end
-	serverInstance = server{controls={ctrl_view_free}}
+	serverInstance = server{
+	controls={
+		mods.require_server('control_view'),
+		mods.require_server('dwarf_watch'),
+		},
+	}
 	local function loopy()
 		serverInstance:tick()
 		if serverInstance.alive then

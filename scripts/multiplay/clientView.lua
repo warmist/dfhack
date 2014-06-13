@@ -6,7 +6,9 @@ local dlg = require 'gui.dialogs'
 local widgets = require 'gui.widgets'
 
 local clientBase=require('hack.scripts.multiplay.clientBase').client
-local ViewControl=require('hack.scripts.multiplay.control_view_free').control_view.client
+local mods=require('hack.scripts.multiplay.modules')
+
+local ViewControl=mods.require_client('control_view')
 
 clientView=defclass(clientView,gui.FramedScreen)
 clientView.ATTRS={
@@ -70,8 +72,10 @@ function clientView:onRenderBody(dc)
 		end
 	end
 	end
-	self.redraw=false
-	self.view:render() --ask for next frame
+	if self.redraw then
+		self.redraw=false
+		self.view:render() --ask for next frame
+	end
 end
 function clientView:onIdle()
 	self.base:tick()
@@ -79,6 +83,26 @@ end
 function clientView:onInput(keys)
 	if keys.STRING_A096 then -- '`'
 		self:dismiss()
+	elseif keys.A_MOVE_W then
+		self.view:move_viewscreen(-1,0,0)
+	elseif keys.A_MOVE_E then
+		self.view:move_viewscreen(1,0,0)
+	elseif keys.A_MOVE_N then
+		self.view:move_viewscreen(0,-1,0)
+	elseif keys.A_MOVE_S then
+		self.view:move_viewscreen(0,1,0)
+	elseif keys.A_MOVE_NW then
+		self.view:move_viewscreen(-1,-1,0)
+	elseif keys.A_MOVE_NE then
+		self.view:move_viewscreen(1,-1,0)
+	elseif keys.A_MOVE_SE then
+		self.view:move_viewscreen(1,1,0)
+	elseif keys.A_MOVE_SW then
+		self.view:move_viewscreen(-1,1,0)
+	elseif keys.A_MOVE_UP_AUX then
+		self.view:move_viewscreen(0,0,1)
+	elseif keys.A_MOVE_DOWN_AUX then
+		self.view:move_viewscreen(0,0,-1)
 	else
 		if keys.SELECT then
 			self.base.buffer:reset()
