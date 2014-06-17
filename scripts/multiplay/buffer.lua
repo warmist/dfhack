@@ -154,7 +154,7 @@ function buffer:receive(client,stringmode) --can be improved with better buffers
 	if stringmode then
 		local data={}
 		local s=client:receive()
-		print("receive:",s)
+		--print("receive:",s)
 		for i=1,#s do
 			data[i-1]=string.byte(s,i)
 		end
@@ -166,7 +166,7 @@ function buffer:receive(client,stringmode) --can be improved with better buffers
 			return
 		end
 		local size=self:collectInt32({s:byte(1,4)},1)
-		print("receive header",size)
+		--print("receive header",size)
 		if size<=0 then
 			error("invalid packet size")
 		end
@@ -175,7 +175,7 @@ function buffer:receive(client,stringmode) --can be improved with better buffers
 			error("partial read")
 		end
 		
-		print("received body:")
+		--print("received body:")
 		self.recBuf=self.recBuf or {}
 		for i=1,#ss do
 			self.recBuf[i-1]=string.byte(ss,i)
@@ -188,7 +188,7 @@ function buffer:size( )
 	return #self.recBuf,self.offset
 end
 function buffer:send(client)
-	print("BUFFER| sending:",self.offset)
+	--print("BUFFER| sending:",self.offset)
 	client=client or self.client
 	--self.msgBuf[0]=self.offset-1
 	self:splitInt32(self.offset-4,self.msgBuf)

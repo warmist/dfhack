@@ -25,12 +25,12 @@ end
 
 local client=defclass(client,socket)
 function client:init(args )
-    local m=getmetatable(self)
+    --[[local m=getmetatable(self)
     m.__gc=function(obj)
-        print("collecting",self.server_id,self.client_id)
+        print("collecting",obj,obj.server_id,obj.client_id)
         obj:close()
     end
-    setmetatable(self,m)
+    setmetatable(self,m)]]
 end
 function client:receive( pattern )
     local pattern=pattern or "*l"

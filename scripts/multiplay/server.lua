@@ -1,5 +1,5 @@
 --server for df multiplayer
-players=players or {} -- username/password hold, TODO improve
+passwords=passwords or {} -- username/password hold, TODO improve
 
 local socket=require "plugins.luasocket"
 args={...}
@@ -15,9 +15,11 @@ local buffer=require('hack.scripts.multiplay.buffer').buffer
 local messages=require('hack.scripts.multiplay.messages').MSG_TYPES
 local PROTOCOL_VERSION=require('hack.scripts.multiplay.messages').PROTOCOL_VERSION
 local mods=require('hack.scripts.multiplay.modules')
+
+
 server=defclass(server)
 server.ATTRS={
-	controls=DEFAULT_NIL,
+	init_controls=DEFAULT_NIL,
 	clients={}, --clients have empty table if not logged in, have a non-empty controls table if sent the version info
 	alive=true
 }
@@ -27,20 +29,36 @@ function server:init(args)
 	self.sock=socket.tcp:bind(HOST,SOCKET)
 	print("Server started on:"..HOST..":"..SOCKET)
 	self.controls_by_id={}
-	for i,ctrl in ipairs(self.controls or {}) do
-		self.controls_by_id[ctrl.ID]=ctrl
+	self.msg_callbacks={}
+	for i,ctrl in ipairs(self.init_controls or {}) do
+		local ctrl_obj=ctrl{server=self,buffer=self.buffer}
+		self.controls_by_id[ctrl.ID]=ctrl_obj
+		for msg,fun in pairs(ctrl.supports()) do
+			print("Supports:",msg,messages[msg])
+			self.msg_callbacks[msg]={obj=ctrl_obj,fun=fun}
+		end
 	end
+	
+	self.players={}
 end
-function server:tick()
-	--accept all new clients
+function server:accept_clients()
 	repeat
 		local client=self.sock:accept()
 		if client then
 			self:newClient(client)
 		end
 	until client==nil
+end
+function server:controler_func(fname,...)
+	for id,ctrl in ipairs(self.controls_by_id) do
+		ctrl:invoke_after(fname,...)
+	end
+end
+function server:tick()
+	--accept all new clients
+	self:accept_clients()
 	--do module ticks
-	--TODO
+	self:controler_func('tick')
 	--process received messages
 	for client,_ in pairs(self.clients) do
 		local ok=dfhack.safecall(self:callback("tryReceive",client))
@@ -52,7 +70,7 @@ end
 function server:newClient(client)
 	print("New client connected:",client.client_id)
 	self.clients[client]={controls={}}
-	--self:sendVersion(id)
+	self:controler_func('new_client',client)
 end
 function server:tryReceive(client)
 	local buf=self.buffer
@@ -62,7 +80,7 @@ function server:tryReceive(client)
 		return
 	end
 	local msg=buf:extract()
-	print("data received, size="..size.." msg="..tostring(msg))
+	--print("data received, size="..size.." msg="..tostring(msg))
 	if msg==messages.VERSION then
 		self:initClient(client,buf)
 	elseif msg==messages.LOGIN then
@@ -70,9 +88,9 @@ function server:tryReceive(client)
 	elseif msg==messages.CHAT then
 		self:chat(client,buf)
 	else
-		local control=self.clients[client].controls[msg]
-		if control~=nil then
-			control.fun(control.obj,buf)
+		local control=self.msg_callbacks[msg]
+		if control~=nil and self.clients[client].controls[control.obj] then
+			control.fun(control.obj,buf,self.players[client])
 		else
 			error("Unsupported message received:"..tostring(msg))
 		end
@@ -80,9 +98,17 @@ function server:tryReceive(client)
 end
 function server:disconnect(client) --how to?
 	print("Client disconnected:",client.client_id)
-	--TODO maybe controls want to know that?
+
+	if self.clients[client] and self.players[client] then
+		self:controler_func('player_left',self.players[client])
+		self.players[client].client=nil
+		self.players[client]=nil
+		
+	end
+
 	self.clients[client]=nil
 	client:close()
+
 end
 function server:initClient(client,buf)
 	local pVer=buf:extract()
@@ -95,28 +121,43 @@ function server:initClient(client,buf)
 	for i=1,numControls do
 		local ctrlId=buf:extract()
 		print("Loading control id=",ctrlId)
-		local control=self.controls_by_id[ctrlId] --TODO replace by func from modules
+		local control=self.controls_by_id[ctrlId]
 		if control==nil then
 			qerror("Unsupported control id:",tostring(ctrlId))
 		end
-		for k,v in pairs(control.supports()) do
-			self.clients[client].controls[k]={fun=v,class=control}
-		end
+		self.clients[client].controls[control]=true
 	end
 	
 end
 function server:login(client,buf)
 	local name=buf:extract('string')
 	local pass=buf:extract('string')
+	local obj_hold={}
 	print("Player logging in:"..name)
-	if players[name]==nil or players[name]==pass then
-		self.clients[client].player={name=name,id=client.client_id,buffer=self.buf,client=client}
-		for k,v in pairs(self.clients[client].controls) do
-			v.obj=v.class{player=self.clients[client].player,server=self}
-		end
-		players[name]=pass
+	if passwords[name]==nil or passwords[name]==pass then
+		local player={name=name,id=client.client_id,buffer=self.buffer,client=client}
+		self.clients[client].player=player
+		self.players[client]=player
+		passwords[name]=pass
+		self:controler_func('player_join',player)
+
 	else
 		self:sendInfo(client,"Invalid password",true)
+	end
+end
+function server:chat(client,buf)
+	local msg=buf:extract('string')
+	if self.players[client] then
+		local name=self.players[client].name
+		local buf=self.buffer
+		msg=string.format("[%s] %s",name,msg)
+		print(msg)
+		buf:reset()
+		for k,v in pairs(self.players) do
+			buf:append(messages.CHAT)
+			buf:append(msg)
+			buf:send(k)
+		end
 	end
 end
 function server:sendInfo(client,str,isFatal)
@@ -172,7 +213,7 @@ else
 		serverInstance=nil
 	end
 	serverInstance = server{
-	controls={
+	init_controls={
 		mods.require_server('control_view'),
 		mods.require_server('dwarf_watch'),
 		},

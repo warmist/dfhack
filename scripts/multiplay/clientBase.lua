@@ -11,7 +11,6 @@ client=defclass(client)
 client.ATTRS={
 	initControls=DEFAULT_NIL,
 	controls=DEFAULT_NIL,
-	controls_by_id={},
 	host="localhost",
 	socket=1444,
 	alive=true
@@ -37,7 +36,7 @@ function client:received()
 	local buf=self.buffer
 	
 	local msgType=buf:extract()
-	print("Recieved", buf:size(),"bytes", "msg type=",msgType)
+	--print("Recieved", buf:size(),"bytes", "msg type=",msgType)
 	if self.controls[msgType] then
 		self.controls[msgType].fun(buf)
 	else
@@ -55,8 +54,9 @@ function client:init(args)
 	--socket.onDataRecieved.multiplay=self:callback("received")
 	--socket.onDisconnect.multiplay=self:callback("disconnected")
 	self.sock=socket.tcp:connect(self.host,self.socket)
+	print("Socket:",self.sock)
 	self.buffer.client=self.sock
-
+	self.controls_by_id={}
 	self.controls=self.controls or {}
 	self.controls[messages.CHAT]={fun=self:callback("chat")}
 	
@@ -71,6 +71,7 @@ function client:init(args)
 end
 function client:addControl(control)
 	table.insert(self.controls_by_id,control.ID)
+	control.buffer=control.buffer or self.buffer
 	for id,fun in pairs(control.supports()) do
 		self.controls[id]={c=control,fun=dfhack.curry(fun,control)}
 	end
@@ -98,14 +99,26 @@ function client:sendVersion()
 		self.onDoneInit()
 	end
 end
+function client:sendChat( text )
+	local buf=self.buffer
+	buf:reset()
+	buf:append(messages.CHAT)
+	buf:append(text)
+	buf:send()
+end
 function client:shutdown()
 	self.sock:close()
 	self.alive=false
 end
 function client:tick( )
+	local ok=safecall(function()
 	local size=self.buffer:receive()
 	if size then
 		self:received()
+	end
+	end)
+	if not ok then
+		self:shutdown()
 	end
 end
 return _ENV

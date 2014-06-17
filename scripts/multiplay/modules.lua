@@ -6,6 +6,15 @@
     end
 
     where message_suffix is from messages module and e.g. in 'VIEWSCREEN_UPDATE' it's 'update'
+
+
+    Module needs to be 1 per server. Reason is, sometimes you will want to do players in batches (e.g. find all new combat messages and send them)
+    special functions:
+        tick()
+        new_client(client) - new client (not logged in yet) joins.
+        player_join(player) - player joins (now logged in)
+        player_left(player) - player leaves
+
 ]]
 local _ENV = mkmodule('hack.scripts.multiplay.modules')
 
@@ -14,18 +23,17 @@ ID_MAP=ID_MAP or {}
 
 mod_server=defclass(mod_server)
 mod_server.ATTRS={
-    player=DEFAULT_NIL,
     server=DEFAULT_NIL
 }
 function mod_server:init(args)
-    if self.player==nil then
-        error("Invalid player")
-    end
-    if self.server==nil then
-        error("Invalid server")
-    end
+    self.players={}
 end
-
+function mod_server:player_join(player)
+    self.players[player]=true
+end
+function mod_server:player_left(player)
+    self.players[player]=nil
+end
 mod_client=defclass(mod_client)
 mod_client.ATTRS={
     buffer=DEFAULT_NIL,
@@ -42,7 +50,7 @@ local function get_supports(class,name)
     local ret={}
     for k,v in pairs(class) do
         if type(k)=="string" then
-            local fname=k:match("msg_(%w+)")
+            local fname=k:match("msg_(.+)")
             if fname then
                 ret[messages[string.upper(name.."_"..fname)]]=v
             end
@@ -54,12 +62,14 @@ function make_mod(oldclass,name,ID)
     local ret=oldclass or {}
     ret.server=defclass(ret.server,mod_server)
     ret.server.ID=ID
+    ret.server.class_name=name
     ret.server.supports=function()
         return get_supports(ret.server,name)
     end
     ret.client=defclass(ret.client,mod_client)
     ret.client.ID=ID
-    ret.client.supports=function()
+    ret.client.class_name=name
+    ret.client.supports=function()--TODO refactor to simple table
         return get_supports(ret.client,name)
     end
     ret.name=name
