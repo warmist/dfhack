@@ -46,6 +46,7 @@ using namespace std;
 #include "modules/Materials.h"
 #include "modules/Translation.h"
 #include "modules/Maps.h"
+#include "modules/Random.h"
 #include "ModuleFactory.h"
 #include "Core.h"
 #include "MiscUtils.h"
@@ -1586,19 +1587,29 @@ std::string DFHack::Units::getSquadName(df::unit *unit)
 }
 
 df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord pos) {
-    //TODO: use modules/Random
     //argument checking
+    Random::MersenneRNG rng;
+    rng.init();
     CHECK_INVALID_ARGUMENT(pos.x!=-30000);
     df::creature_raw* race = df::creature_raw::find(raceId);
-    CHECK_INVALID_ARGUMENT(race!=0)
-    df::caste_raw* caste = race->caste[casteId];
-    CHECK_INVALID_ARGUMENT(caste!=0);
+    CHECK_INVALID_ARGUMENT(race!=NULL);
+    df::caste_raw* caste = vector_get(race->caste,casteId);
+    CHECK_INVALID_ARGUMENT(caste!=NULL);
+
     df::tile_occupancy* occupancy=DFHack::Maps::getTileOccupancy(pos);
-    CHECK_INVALID_ARGUMENT(occupancy!=0);
+    CHECK_INVALID_ARGUMENT(occupancy!=NULL);
     //create unit
     df::unit* unit = new df::unit();
     unit->pos=pos;
-    occupancy->bits.unit=true;
+    if(occupancy->bits.unit)
+    {
+        unit->flags1.bits.on_ground=true;//unit at position, lie down
+    }
+    else
+    {
+        occupancy->bits.unit=true;
+    }
+
     {
         unit->race = raceId;
         unit->caste = casteId;
@@ -1619,7 +1630,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         unit->curse.own_interaction_delay.resize(num_inter);
 
         //body stuff
-        unit->body.body_plan = &caste->body_info;
+        unit->body.body_plan = &caste->body_info; //ERROR HERE?
         size_t body_part_count = caste->body_info.body_parts.size();
         size_t layer_count = caste->body_info.layer_part.size();
         unit->body.components.body_part_status.resize(body_part_count);
@@ -1633,26 +1644,26 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         unit->body.components.layer_dent_fraction.resize(layer_count);
         unit->body.components.layer_effect_fraction.resize(layer_count);
 
-        const size_t phys_att_count = df::enum_traits<df::physical_attribute_type>::last_item_value + 1; 
         //shenanigans to avoid magic constants
         const size_t phys_att_range_size = sizeof(caste->attributes.phys_att_range[0]) / sizeof(int32_t);
-        for ( size_t a = 0; a < phys_att_count; a++ ) {
-            int32_t max_percent = caste->attributes.phys_att_cap_perc[a];
+        FOR_ENUM_ITEMS(physical_attribute_type,attribute)
+        {
+            int32_t max_percent = caste->attributes.phys_att_cap_perc[attribute];
             //pick a random index in the array, then pick a random number between the arr[index] and arr[index+1]
-            int32_t index = (int32_t)((rand()/(1+(float)RAND_MAX))*(phys_att_range_size-1)); 
-            int32_t cvalue = (int32_t)((rand()/(1+(float)RAND_MAX))*(caste->attributes.phys_att_range[a][index+1] - caste->attributes.phys_att_range[a][index])) + caste->attributes.phys_att_range[a][index];
-            unit->body.physical_attrs[a].value = cvalue;
-            unit->body.physical_attrs[a].max_value = (cvalue*max_percent) / 100;
+            int32_t index = rng.df_trandom(phys_att_range_size);
+            int32_t bin_min=caste->attributes.phys_att_range[attribute][index];
+            int32_t bin_size=caste->attributes.phys_att_range[attribute][index+1] - bin_min;
+            int32_t cvalue = rng.df_trandom(bin_size) + bin_min;
+            unit->body.physical_attrs[attribute].value = cvalue;
+            unit->body.physical_attrs[attribute].max_value = (cvalue*max_percent) / 100;
         }
-
         unit->body.blood_max = caste->body_size_1[caste->body_size_1.size()-1]; //TODO: distribute correctly
         unit->body.blood_count = unit->body.blood_max;
         unit->body.infection_level = 0;
         unit->status2.body_part_temperature.resize(body_part_count);
         for ( size_t a = 0; a < body_part_count; a++ ) {
             df::temperaturest* temp = df::allocate<df::temperaturest>();
-            temp->whole = 10067; //TODO: look for homeotherm or something?
-            temp->fraction = 0;
+            //temp is initialized to 10050
             unit->status2.body_part_temperature[a] = temp;
         }
 
@@ -1685,8 +1696,8 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         for (size_t a = 0; a < caste->body_appearance_modifiers.size(); a++ ) {
             df::body_appearance_modifier* mod = caste->body_appearance_modifiers[a];
             size_t rangeSize = sizeof(mod->ranges) / sizeof(int32_t);
-            size_t index = (size_t)((rand()/(1+(float)RAND_MAX))*(-1+rangeSize));
-            int32_t value = (int32_t)((rand()/(1+(float)RAND_MAX))*(mod->ranges[index+1] - mod->ranges[index]));
+            size_t index = rng.df_trandom(rangeSize);
+            int32_t value = rng.df_trandom(mod->ranges[index+1] - mod->ranges[index])+mod->ranges[index];
             unit->appearance.body_modifiers[a] = value;
         }
         //size_t idxSize = caste->bp_appearance.modifier_idx.size();
@@ -1712,7 +1723,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
     }
     
     unit->id = *(df::global::unit_next_id);
-    *(df::global::unit_next_id)++;
+    (*df::global::unit_next_id)++;
     df::global::world->units.all.push_back(unit);
     df::global::world->units.active.push_back(unit);
     
@@ -1725,14 +1736,19 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         soul->sex = unit->sex;
         soul->caste = unit->caste;
         //TODO: preferences.traits.
-        const size_t ment_att_count = df::enum_traits<df::mental_attribute_type>::last_item_value + 1; 
+        
+        
         const size_t ment_att_range_size = sizeof(caste->attributes.phys_att_range[0]) / sizeof(int32_t);
-        for ( size_t a = 0; a < ment_att_count; a++ ) {
-            int32_t max_percent = caste->attributes.ment_att_cap_perc[a];
-            int32_t index = (int32_t)((rand()/(1+(float)RAND_MAX))*(ment_att_range_size-1));
-            int32_t cvalue = (int32_t)((rand()/(1+(float)RAND_MAX))*(caste->attributes.ment_att_range[a][index+1] - caste->attributes.ment_att_range[a][index]));
-            soul->mental_attrs[a].value = cvalue;
-            soul->mental_attrs[a].max_value = (cvalue*max_percent) / 100;
+        FOR_ENUM_ITEMS(mental_attribute_type,attribute) {
+            int32_t max_percent = caste->attributes.ment_att_cap_perc[attribute];
+            int32_t index = rng.df_trandom(ment_att_range_size);
+
+            int32_t bin_min=caste->attributes.ment_att_range[attribute][index];
+            int32_t bin_size=caste->attributes.ment_att_range[attribute][index+1] - bin_min;
+
+            int32_t cvalue = rng.df_trandom(bin_size)+bin_min;
+            soul->mental_attrs[attribute].value = cvalue;
+            soul->mental_attrs[attribute].max_value = (cvalue*max_percent) / 100;
         }
         const size_t traitCount = sizeof(soul->traits) / sizeof(soul->traits[0]);
         for ( size_t a = 0; a < traitCount; a++ ) {
@@ -1741,7 +1757,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
             int16_t max = caste->personality.c[a];
             double sd = sqrt((double)(max-min));
             //normal distribution
-            double z = sqrt((-2)*log(rand()/(1+(double)RAND_MAX)))*cos(2*M_PI*rand()/(1+(double)RAND_MAX));
+            double z = sqrt((-2)*log(rng.drandom()))*cos(2*M_PI*rng.drandom());
             z *= sd;
             z += mean;
             if ( z < min )
@@ -1764,13 +1780,34 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
 
     return unit;
 }
+static void join_civ(df::historical_entity* civ,df::historical_figure* fig, bool gen_event)
+{
+    civ->histfig_ids.push_back(fig->id);
+    civ->hist_figures.push_back(fig);
 
+    df::histfig_entity_link_memberst* link = df::allocate<df::histfig_entity_link_memberst>();
+    link->entity_id = civ->id;
+    link->link_strength = 100;
+    fig->entity_links.push_back(link);
+    //actual join event
+    df::history_event_add_hf_entity_linkst* join_event = df::allocate<df::history_event_add_hf_entity_linkst>();
+    join_event->year = *df::global::cur_year;
+    join_event->seconds = *df::global::cur_year_tick;
+    join_event->id = (*df::global::hist_event_next_id)++;
+    join_event->civ = civ->id;
+    join_event->histfig = fig->id;
+    join_event->link_type = df::enums::histfig_entity_link_type::MEMBER;
+    df::global::world->history.events.push_back(join_event);
+}
 void DFHack::Units::makeHistorical(df::unit* unit, df::historical_entity* civ, df::historical_entity* group) {
 
     CHECK_NULL_POINTER(unit);
-    CHECK_NULL_POINTER(civ);
-    CHECK_NULL_POINTER(group);
-
+    //civ can be null
+    //group can actually be null
+    if(civ==NULL && unit->civ_id>0)
+    {
+        civ=df::historical_entity::find(unit->civ_id);
+    }
     df::historical_figure* histfig = new df::historical_figure;
     histfig->id = *df::global::hist_figure_next_id;
     (*df::global::hist_figure_next_id)++;
@@ -1811,38 +1848,19 @@ void DFHack::Units::makeHistorical(df::unit* unit, df::historical_entity* civ, d
     //TODO: skills
     histfig->info->skills = new df::historical_figure_info::T_skills;
     
-    civ->histfig_ids.push_back(histfig->id);
-    civ->hist_figures.push_back(histfig);
+    if(civ) {
+        join_civ(civ,histfig,true);
+    }
     if (group) {
-        group->histfig_ids.push_back(histfig->id);
-        group->hist_figures.push_back(histfig);
-        df::histfig_entity_link_memberst* link = df::allocate<df::histfig_entity_link_memberst>();
-        link->entity_id = group->id;
-        link->link_strength = 100;
-        histfig->entity_links.push_back(link);
+        join_civ(group,histfig,true);
     }
     unit->flags1.bits.important_historical_figure = true;
     unit->flags2.bits.important_historical_figure = true;
     unit->hist_figure_id = histfig->id;
     unit->hist_figure_id2 = histfig->id;
 
-    {
-        df::histfig_entity_link_memberst* link = df::allocate<df::histfig_entity_link_memberst>();
-        link->entity_id = unit->civ_id;
-        link->link_strength = 100;
-        histfig->entity_links.push_back(link);
-    }
-    
-    {
-        df::history_event_add_hf_entity_linkst* link = df::allocate<df::history_event_add_hf_entity_linkst>();
-        link->year = unit->relations.birth_year;
-        link->seconds = unit->relations.birth_time;
-        link->id = histfig->id + 1; //TODO: really?
-        link->civ = histfig->civ_id;
-        link->histfig = histfig->id;
-        link->link_type = df::enums::histfig_entity_link_type::MEMBER;
-        df::global::world->history.events.push_back(link);
-    }
+
+        
     return;
 }
 
