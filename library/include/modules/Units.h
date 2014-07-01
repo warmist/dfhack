@@ -258,6 +258,10 @@ DFHACK_EXPORT int8_t getProfessionColor(df::unit *unit, bool ignore_noble = fals
 DFHACK_EXPORT int8_t getCasteProfessionColor(int race, int caste, df::profession pid);
 
 DFHACK_EXPORT std::string getSquadName(df::unit *unit);
+
+DFHACK_EXPORT df::unit* createUnit(int32_t race, int32_t caste, df::coord pos);
+DFHACK_EXPORT void makeHistorical(df::unit* unit, df::historical_entity* civ, df::historical_entity* group);
+DFHACK_EXPORT void makeNemesis(df::unit* unit);
 }
 }
 #endif
