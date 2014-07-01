@@ -45,6 +45,7 @@ using namespace std;
 #include "modules/Items.h"
 #include "modules/Materials.h"
 #include "modules/Translation.h"
+#include "modules/Maps.h"
 #include "ModuleFactory.h"
 #include "Core.h"
 #include "MiscUtils.h"
@@ -1585,24 +1586,19 @@ std::string DFHack::Units::getSquadName(df::unit *unit)
 }
 
 df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord pos) {
-    DFHack::Console& out = Core::getInstance().getConsole();
-
-    CHECK_INVALID_ARGUMENT(pos.x!=-30000);
-    
     //TODO: use modules/Random
+    //argument checking
+    CHECK_INVALID_ARGUMENT(pos.x!=-30000);
+    df::creature_raw* race = df::creature_raw::find(raceId);
+    CHECK_INVALID_ARGUMENT(race!=0)
+    df::caste_raw* caste = race->caste[casteId];
+    CHECK_INVALID_ARGUMENT(caste!=0);
+    df::tile_occupancy* occupancy=DFHack::Maps::getTileOccupancy(pos);
+    CHECK_INVALID_ARGUMENT(occupancy!=0);
+    //create unit
     df::unit* unit = new df::unit();
     unit->pos=pos;
-    df::creature_raw* race = df::creature_raw::find(raceId);
-    if ( !race ) {
-        delete unit;
-        CHECK_INVALID_ARGUMENT(race!=0);
-    }
-    df::caste_raw* caste = race->caste[casteId];
-    if ( !caste ) {
-        delete unit;
-        CHECK_INVALID_ARGUMENT(caste!=0);
-    }
-    //create unit
+    occupancy->bits.unit=true;
     {
         unit->race = raceId;
         unit->caste = casteId;
