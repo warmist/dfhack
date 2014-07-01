@@ -1586,22 +1586,21 @@ std::string DFHack::Units::getSquadName(df::unit *unit)
 
 df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord pos) {
     DFHack::Console& out = Core::getInstance().getConsole();
-    if (pos.x == -30000) {
-        out.print("Units.cpp %d: invalid pos.\n", __LINE__);
-        return NULL;
-    }
+
+    CHECK_INVALID_ARGUMENT(pos.x!=-30000);
     
     //TODO: use modules/Random
     df::unit* unit = new df::unit();
+    unit->pos=pos;
     df::creature_raw* race = df::creature_raw::find(raceId);
     if ( !race ) {
-        out.print("%s, %d: couldn't find race.\n", __FILE__, __LINE__);
-        return NULL;
+        delete unit;
+        CHECK_INVALID_ARGUMENT(race!=0);
     }
     df::caste_raw* caste = race->caste[casteId];
     if ( !caste ) {
-        out.print("%s, %d: couldn't find caste.\n", __FILE__, __LINE__);
-        return NULL;
+        delete unit;
+        CHECK_INVALID_ARGUMENT(caste!=0);
     }
     //create unit
     {
@@ -1615,6 +1614,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
             unit->relations.old_year = unit->relations.birth_year;
             int32_t maxage = (int32_t)((rand()/(1+(float)RAND_MAX))*(caste->misc.maxage_max - caste->misc.maxage_min));
             unit->relations.old_year += maxage;
+            //TODO: old_time
         }
         unit->relations.birth_time = *(df::global::cur_year_tick);
 
@@ -1770,6 +1770,11 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
 }
 
 void DFHack::Units::makeHistorical(df::unit* unit, df::historical_entity* civ, df::historical_entity* group) {
+
+    CHECK_NULL_POINTER(unit);
+    CHECK_NULL_POINTER(civ);
+    CHECK_NULL_POINTER(group);
+
     df::historical_figure* histfig = new df::historical_figure;
     histfig->id = *df::global::hist_figure_next_id;
     (*df::global::hist_figure_next_id)++;
@@ -1846,6 +1851,9 @@ void DFHack::Units::makeHistorical(df::unit* unit, df::historical_entity* civ, d
 }
 
 void DFHack::Units::makeNemesis(df::unit* unit) {
+
+    CHECK_NULL_POINTER(unit);
+
     df::nemesis_record* nem = new df::nemesis_record;
     nem->id = (*df::global::nemesis_next_id)++;
     nem->unit_id = unit->id;

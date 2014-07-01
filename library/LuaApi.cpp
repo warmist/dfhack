@@ -1401,6 +1401,9 @@ static const LuaWrapper::FunctionReg dfhack_units_module[] = {
     WRAPM(Units, getCasteProfessionName),
     WRAPM(Units, getProfessionColor),
     WRAPM(Units, getCasteProfessionColor),
+    WRAPM(Units, createUnit),
+    WRAPM(Units, makeHistorical),
+    WRAPM(Units, makeNemesis),
     { NULL, NULL }
 };
 
