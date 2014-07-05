@@ -1585,7 +1585,14 @@ std::string DFHack::Units::getSquadName(df::unit *unit)
         return squad->alias;
     return Translation::TranslateName(&squad->name, true);
 }
-
+template<typename T>
+int32_t gen_binned(T* mod,Random::MersenneRNG& rng)
+{
+    size_t rangeSize = sizeof(mod->ranges) / sizeof(int32_t);
+    size_t index = rng.df_trandom(rangeSize-1);
+    int32_t value = rng.df_trandom(mod->ranges[index+1] - mod->ranges[index])+mod->ranges[index];
+    return value;
+}
 df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord pos) {
     //argument checking
     Random::MersenneRNG rng;
@@ -1604,6 +1611,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
     if(occupancy->bits.unit)
     {
         unit->flags1.bits.on_ground=true;//unit at position, lie down
+        occupancy->bits.unit_grounded=true;
     }
     else
     {
@@ -1619,7 +1627,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
             unit->relations.old_year = -1;
         } else {
             unit->relations.old_year = unit->relations.birth_year;
-            int32_t maxage = (int32_t)((rand()/(1+(float)RAND_MAX))*(caste->misc.maxage_max - caste->misc.maxage_min));
+            int32_t maxage = rng.df_trandom(caste->misc.maxage_max- caste->misc.maxage_min)+ caste->misc.maxage_min;
             unit->relations.old_year += maxage;
             //TODO: old_time
         }
@@ -1650,7 +1658,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         {
             int32_t max_percent = caste->attributes.phys_att_cap_perc[attribute];
             //pick a random index in the array, then pick a random number between the arr[index] and arr[index+1]
-            int32_t index = rng.df_trandom(phys_att_range_size);
+            int32_t index = rng.df_trandom(phys_att_range_size-1);
             int32_t bin_min=caste->attributes.phys_att_range[attribute][index];
             int32_t bin_size=caste->attributes.phys_att_range[attribute][index+1] - bin_min;
             int32_t cvalue = rng.df_trandom(bin_size) + bin_min;
@@ -1694,28 +1702,21 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         //appearance
         unit->appearance.body_modifiers.resize(caste->body_appearance_modifiers.size());
         for (size_t a = 0; a < caste->body_appearance_modifiers.size(); a++ ) {
-            df::body_appearance_modifier* mod = caste->body_appearance_modifiers[a];
-            size_t rangeSize = sizeof(mod->ranges) / sizeof(int32_t);
-            size_t index = rng.df_trandom(rangeSize);
-            int32_t value = rng.df_trandom(mod->ranges[index+1] - mod->ranges[index])+mod->ranges[index];
-            unit->appearance.body_modifiers[a] = value;
+            unit->appearance.body_modifiers[a] =gen_binned(caste->body_appearance_modifiers[a],rng);
         }
         //size_t idxSize = caste->bp_appearance.modifier_idx.size();
-        size_t modifierSize = caste->bp_appearance.modifiers.size();
+        size_t modifierSize = caste->bp_appearance.modifier_idx.size();
         unit->appearance.bp_modifiers.resize(modifierSize);
-        for ( size_t a = 0; a < unit->appearance.bp_modifiers.size(); a++ ) {
-            df::bp_appearance_modifier* mod = caste->bp_appearance.modifiers[a];
-            size_t rangeSize = sizeof(mod->ranges) / sizeof(int32_t);
-            size_t index = (size_t)((rand()/(1+(float)RAND_MAX))*(-1+rangeSize));
-            int32_t value = (int32_t)((rand()/(1+(float)RAND_MAX))*(mod->ranges[index+1] - mod->ranges[index]));
-            unit->appearance.bp_modifiers[a] = value;
+        for ( size_t a = 0; a < modifierSize; a++ ) {
+            df::bp_appearance_modifier* mod = caste->bp_appearance.modifiers[caste->bp_appearance.modifier_idx[a]];
+            unit->appearance.bp_modifiers[a] = gen_binned(mod,rng);
         }
-
-        unit->appearance.tissue_style.resize(modifierSize);
-        unit->appearance.tissue_style_civ_id.resize(modifierSize);
-        unit->appearance.tissue_style_id.resize(modifierSize);
-        unit->appearance.tissue_style_type.resize(modifierSize);
-        unit->appearance.tissue_length.resize(modifierSize);
+        size_t styles_count=caste->bp_appearance.style_part_idx.size();
+        unit->appearance.tissue_style.resize(modifierSize,-1);
+        unit->appearance.tissue_style_civ_id.resize(modifierSize,-1);
+        unit->appearance.tissue_style_id.resize(modifierSize,-1);
+        unit->appearance.tissue_style_type.resize(modifierSize,-1);
+        unit->appearance.tissue_length.resize(modifierSize,-30000);
         
         unit->appearance.genes.appearance.resize(caste->body_appearance_modifiers.size() + caste->bp_appearance.modifiers.size());
         unit->appearance.genes.colors.resize(caste->color_modifiers.size()*2); //???
@@ -1738,10 +1739,10 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         //TODO: preferences.traits.
         
         
-        const size_t ment_att_range_size = sizeof(caste->attributes.phys_att_range[0]) / sizeof(int32_t);
+        const size_t ment_att_range_size = sizeof(caste->attributes.ment_att_range[0]) / sizeof(int32_t);
         FOR_ENUM_ITEMS(mental_attribute_type,attribute) {
             int32_t max_percent = caste->attributes.ment_att_cap_perc[attribute];
-            int32_t index = rng.df_trandom(ment_att_range_size);
+            int32_t index = rng.df_trandom(ment_att_range_size-1);
 
             int32_t bin_min=caste->attributes.ment_att_range[attribute][index];
             int32_t bin_size=caste->attributes.ment_att_range[attribute][index+1] - bin_min;
@@ -1867,6 +1868,8 @@ void DFHack::Units::makeHistorical(df::unit* unit, df::historical_entity* civ, d
 void DFHack::Units::makeNemesis(df::unit* unit) {
 
     CHECK_NULL_POINTER(unit);
+    df::historical_entity* civ = df::historical_entity::find(unit->civ_id);
+    CHECK_INVALID_ARGUMENT(civ!=0); //can't save if there is no civ to save to
 
     df::nemesis_record* nem = new df::nemesis_record;
     nem->id = (*df::global::nemesis_next_id)++;
@@ -1888,7 +1891,7 @@ void DFHack::Units::makeNemesis(df::unit* unit) {
     
     nem->save_file_id = -1;
     
-    df::historical_entity* civ = df::historical_entity::find(unit->civ_id);
+    
     df::historical_figure* histfig = df::historical_figure::find(unit->hist_figure_id);
     //find group of unit, if any
     for ( size_t a = 0; a < histfig->entity_links.size(); a++ ) {
