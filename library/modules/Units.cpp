@@ -51,7 +51,7 @@ using namespace std;
 #include "Core.h"
 #include "MiscUtils.h"
 
-#include "df/assumed_identity.h"
+#include "df/identity.h"
 #include "df/body_appearance_modifier.h"
 #include "df/bp_appearance_modifier.h"
 #include "df/burrow.h"
@@ -1751,7 +1751,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
             soul->mental_attrs[attribute].value = cvalue;
             soul->mental_attrs[attribute].max_value = (cvalue*max_percent) / 100;
         }
-        const size_t traitCount = sizeof(soul->traits) / sizeof(soul->traits[0]);
+		const size_t traitCount = sizeof(soul->personality.traits) / sizeof(soul->personality.traits[0]);
         for ( size_t a = 0; a < traitCount; a++ ) {
             int16_t min = caste->personality.a[a];
             int16_t mean = caste->personality.b[a];
@@ -1765,7 +1765,7 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
                 z = min;
             if ( z > max )
                 z = max;
-            soul->traits[a] = (int16_t)z;
+			soul->personality.traits[a] = (int16_t)z;
         }
         
         for ( size_t a = 0; a < caste->natural_skill_id.size(); a++ ) {
