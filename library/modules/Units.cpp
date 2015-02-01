@@ -1704,8 +1704,8 @@ df::unit* DFHack::Units::createUnit(int32_t raceId, int32_t casteId, df::coord p
         for (size_t a = 0; a < caste->body_appearance_modifiers.size(); a++ ) {
             unit->appearance.body_modifiers[a] =gen_binned(caste->body_appearance_modifiers[a],rng);
         }
-        //size_t idxSize = caste->bp_appearance.modifier_idx.size();
-        size_t modifierSize = caste->bp_appearance.modifier_idx.size();
+        
+        size_t modifierSize = caste->bp_appearance.modifier_idx.size();  //CRASH:Too small, was 105 for fake unit must be 121
         unit->appearance.bp_modifiers.resize(modifierSize);
         for ( size_t a = 0; a < modifierSize; a++ ) {
             df::bp_appearance_modifier* mod = caste->bp_appearance.modifiers[caste->bp_appearance.modifier_idx[a]];
@@ -1876,10 +1876,10 @@ void DFHack::Units::makeNemesis(df::unit* unit) {
     nem->unit_id = unit->id;
     nem->unit = unit;
     nem->flags.resize(4);
-    for ( size_t i = 4; i <= 9; i++ ) {
+    /*for ( size_t i = 4; i <= 9; i++ ) {
         nem->flags.set((df::enums::nemesis_flags::nemesis_flags)i); //TODO: I have no idea if this works
         //nem->flags[i] = true;
-    }
+    }*/
     nem->unk10 = -1;
     nem->unk11 = -1;
     nem->unk12 = -1;
@@ -1900,6 +1900,7 @@ void DFHack::Units::makeNemesis(df::unit* unit) {
         entity->nemesis.push_back(nem);
     }
     nem->figure = histfig;
+	histfig->unit_id2 = nem->id;
     //allocateIds
     if (civ->next_member_idx == 100) {
         //allocate new chunk
