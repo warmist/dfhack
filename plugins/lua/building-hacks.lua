@@ -139,12 +139,6 @@ function registerBuilding(args)
     local produce=args.produce or 0
     local needs_power=args.needs_power or 1
     local auto_gears=args.auto_gears or false
-    if args.auto_gears==nil and args.gears~=nil then
-        auto_gears=true
-    else
-        auto_gears=args.auto_gears
-    end
-
     local updateSkip=0
     local action=args.action --could be nil
     if action~=nil then
