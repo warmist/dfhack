@@ -179,4 +179,9 @@ if(BUILD_SKELETON)
     add_subdirectory(skeleton)
 endif()
 
+OPTION(BUILD_STEAM_API "Build steam-api plugin." ON)
+if (BUILD_STEAM_API)
+
+    DFHACK_PLUGIN(steam_support steam_support.cpp LINK_LIBRARIES steam_api)
+endif()
 INCLUDE(CMakeLists.custom.txt)
