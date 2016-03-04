@@ -1,0 +1,17 @@
+branches:
+  # whitelist
+  only:
+    - develop
+
+skip_tags: true
+
+
+install:
+  - build/generate-MSVC-all-breakfast.bat
+
+configuration: Release
+
+build:
+  parallel: true                  # enable MSBuild parallel builds
+  project: VC2010/dfhack.sln      # path to Visual Studio solution or project
+
