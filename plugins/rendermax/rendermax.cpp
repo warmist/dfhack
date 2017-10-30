@@ -45,7 +45,7 @@ REQUIRE_GLOBAL(world);
 
 enum RENDERER_MODE
 {
-    MODE_DEFAULT,MODE_TRIPPY,MODE_TRUECOLOR,MODE_LUA,MODE_LIGHT
+    MODE_DEFAULT,MODE_TRIPPY,MODE_TRUECOLOR,MODE_LUA,MODE_LIGHT,MODE_LIGHTCL
 };
 RENDERER_MODE current_mode=MODE_DEFAULT;
 lightingEngine *engine=NULL;
@@ -62,7 +62,8 @@ DFhackCExport command_result plugin_init (color_ostream &out, std::vector <Plugi
         "  rendermax light - lighting engine\n"
         "  rendermax light reload - reload the settings file\n"
         "  rendermax light sun <x>|cycle - set time to x (in hours) or cycle (same effect if x<0)\n"
-        "  rendermax light occlusionON|occlusionOFF - debug the occlusion map\n"
+        "  rendermax light occlusionON|emittersON|debugOFF - debug the occlusion/emitter map\n"
+        "  rendermax lightcl - same as light (with all commands) but with opencl engine\n"
         "  rendermax disable\n"
         ));
     return CR_OK;
@@ -306,14 +307,14 @@ static void enable_hooks(bool enable)
 
 DFhackCExport command_result plugin_onstatechange(color_ostream &out, state_change_event event)
 {
-    if(current_mode!=MODE_LIGHT)
+    if(current_mode!=MODE_LIGHT && current_mode!=MODE_LIGHTCL)
         return CR_OK;
     switch(event)
     {
     case SC_VIEWSCREEN_CHANGED:
         {
             CoreSuspendClaimer suspender;
-            if(current_mode==MODE_LIGHT)
+            if(current_mode==MODE_LIGHT || current_mode==MODE_LIGHTCL)
             {
                 engine->clear();
             }
@@ -403,19 +404,21 @@ static command_result rendermax(color_ostream &out, vector <string> & parameters
         unlockGrids();
         return CR_OK;
     }
-    else if(cmd=="light")
+    else if (cmd == "light" || cmd == "lightcl")
     {
-        if(current_mode!=MODE_LIGHT)
+        bool is_opencl = (cmd == "lightcl");
+        RENDERER_MODE new_mode = (is_opencl) ? (MODE_LIGHTCL) : (MODE_LIGHT);
+        if(current_mode!= new_mode)
         {
             removeOld();
             renderer_light *myRender=new renderer_light(enabler->renderer);
-            installNew(myRender,MODE_LIGHT);
+            installNew(myRender, new_mode);
             engine=new lightingEngineViewscreen(myRender);
 
             if (Core::getInstance().isWorldLoaded())
                 plugin_onstatechange(out, SC_WORLD_LOADED);
         }
-        else if(current_mode==MODE_LIGHT && parameters.size()>1)
+        else if(current_mode== new_mode && parameters.size()>1)
         {
             if(parameters[1]=="reload")
             {
@@ -438,10 +441,14 @@ static command_result rendermax(color_ostream &out, vector <string> & parameters
             }
             else if(parameters[1]=="occlusionON")
             {
-                engine->debug(true);
-            }else if(parameters[1]=="occlusionOFF")
+                engine->debug(1);
+            }else if(parameters[1]=="debugOFF")
             {
-                engine->debug(false);
+                engine->debug(0);
+            }
+            else if (parameters[1] == "emittersON")
+            {
+                engine->debug(2);
             }
         }
         else

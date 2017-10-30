@@ -4,11 +4,13 @@ PROJECT (rendermax)
 SET(PROJECT_SRCS
     rendermax.cpp
 	renderer_light.cpp
+    map_reading.cpp
 )
 # A list of headers
 SET(PROJECT_HDRS
     renderer_opengl.hpp
 	renderer_light.hpp
+    map_reading.hpp
 )
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
 

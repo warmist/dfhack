@@ -190,36 +190,38 @@ public:
 
 struct rgbf
 {
-    float r,g,b;
-    rgbf():r(0),g(0),b(0)
+    //alpha is mostly unused, but needs to be here to align correctly
+    float r,g,b,a;
+    rgbf():r(0),g(0),b(0),a(0)
     {
 
     }
-    rgbf(float r,float g,float b):r(r),g(g),b(b)
+    rgbf(float r,float g,float b,float a=0):r(r),g(g),b(b),a(a)
     {
 
     }
     rgbf operator-(const rgbf& cell) const
     {
-        return rgbf(r-cell.r,g-cell.g,b-cell.b);
+        return rgbf(r-cell.r,g-cell.g,b-cell.b,a-cell.a);
     }
     rgbf operator*(float val)const
     {
-        return rgbf(r*val,g*val,b*val);
+        return rgbf(r*val,g*val,b*val,a*val);
     }
     rgbf operator/(float val) const
     {
-        return rgbf(r/val,g/val,b/val);
+        return rgbf(r/val,g/val,b/val,a/val);
     }
     rgbf operator*(const rgbf& cell) const
     {
-        return rgbf(r*cell.r,g*cell.g,b*cell.b);
+        return rgbf(r*cell.r,g*cell.g,b*cell.b,a*cell.a);
     }
     rgbf operator*=(float val)
     {
         r*=val;
         g*=val;
         b*=val;
+        a *= val;
         return *this;
     }
     rgbf operator*=(const rgbf& cell)
@@ -227,6 +229,7 @@ struct rgbf
         r*=cell.r;
         g*=cell.g;
         b*=cell.b;
+        a *= cell.a;
         return *this;
     }
     rgbf operator+=(const rgbf& cell)
@@ -234,27 +237,28 @@ struct rgbf
         r+=cell.r;
         g+=cell.g;
         b+=cell.b;
+        a += cell.a;
         return *this;
     }
     rgbf operator+(const rgbf& other) const
     {
-        return rgbf(r+other.r,g+other.g,b+other.b);
+        return rgbf(r+other.r,g+other.g,b+other.b,a+other.a);
     }
     bool operator<=(const rgbf& other) const
     {
-        return r<=other.r && g<=other.g && b<=other.b;
+        return r<=other.r && g<=other.g && b<=other.b && a<=other.a;
     }
     float dot(const rgbf& other) const
     {
-        return r*other.r+g*other.g+b*other.b;
+        return r*other.r+g*other.g+b*other.b+a*other.a;
     }
     rgbf pow(const float exp) const
     {
-        return rgbf(std::pow(r, exp), std::pow(g, exp), std::pow(b, exp));
+        return rgbf(std::pow(r, exp), std::pow(g, exp), std::pow(b, exp),std::pow(a,exp));
     }
     rgbf pow(const int exp) const
     {
-        return rgbf(std::pow(r, exp), std::pow(g, exp), std::pow(b, exp));
+        return rgbf(std::pow(r, exp), std::pow(g, exp), std::pow(b, exp),std::pow(a,exp));
     }
 };
 struct renderer_test : public renderer_wrap {
