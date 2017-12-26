@@ -56,6 +56,10 @@ rgbf lua_parseLightCell(lua_State* L)
 #define GETLUANUMBER(field,name) lua_getfield(L,-1,#name);\
     if(!lua_isnil(L,-1) && lua_isnumber(L,-1))field=lua_tonumber(L,-1);\
     lua_pop(L,1)
+
+#define GETLUASTRING(field,name) lua_getfield(L,-1,#name);\
+    if(!lua_isnil(L,-1) && lua_isstring(L,-1))field=lua_tostring(L,-1);\
+    lua_pop(L,1)
 matLightDef lua_parseMatDef(lua_State* L)
 {
 
@@ -143,6 +147,7 @@ int light_config::parseSpecial(lua_State* L)
     GETLUANUMBER(engine->max_radius, maxRadius);
     GETLUANUMBER(engine->adapt_speed, adaptSpeed);
     GETLUANUMBER(engine->adapt_brightness, adaptBrightness);
+    GETLUASTRING(engine->opencl_program, openclProgram);
     lua_getfield(L,-1,"dayColors");
     if(lua_istable(L,-1))
     {
@@ -295,6 +300,10 @@ void light_config::defaultSettings()
     max_radius = 15;
     adapt_speed = 0.1;
     adapt_brightness = 100;
+    opencl_program = R"(
+__kernel void calculate_light(__global __read_only float4* occlusion,__global __read_only float4* lights,__global __write_only float4* output ){}
+__kernel void convert_color(__global float4* lights ){}
+)";
 }
 void light_config::load_settings()
 {
@@ -322,8 +331,16 @@ void light_config::load_settings()
         {
             out.printerr("File not found:%s\n",settingsfile.c_str());
             lua_pop(s,1);
+            ret = luaL_loadfile(s, "raw/rendermax.lua");
+            if (ret == LUA_ERRFILE)
+            {
+                lua_pop(s, 1);
+                out.printerr("Fallback file (raw/rendermax.lua) not found\n");
+                return;
+            }
         }
-        else if(ret==LUA_ERRSYNTAX)
+
+        if(ret==LUA_ERRSYNTAX)
         {
             out.printerr("Syntax error:\n\t%s\n",lua_tostring(s,-1));
         }

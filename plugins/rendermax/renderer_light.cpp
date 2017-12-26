@@ -11,6 +11,9 @@
 #include "df/viewscreen_dungeonmodest.h"
 #include "modules/Gui.h"
 #include "modules/MapCache.h"
+
+#include "CL\opencl.h"
+
 using df::global::gps;
 using namespace DFHack;
 using df::coord2d;
@@ -28,7 +31,8 @@ bool isInRect(const coord2d& pos,const rect2d& rect)
 
 lightingEngineViewscreen::~lightingEngineViewscreen()
 {
-    
+    if (is_opencl)
+        deinit_opencl();
 }
 
 rect2d getMapViewport()
@@ -73,12 +77,15 @@ rect2d getMapViewport()
     }
     return mkrect_wh(1,1,view_rb,view_height+1);
 }
-lightingEngineViewscreen::lightingEngineViewscreen(renderer_light* target):lightingEngine(target),doDebug(0)
+lightingEngineViewscreen::lightingEngineViewscreen(renderer_light* target,bool is_opencl):lightingEngine(target),doDebug(0),is_opencl(is_opencl)
 {
     reinit();
     cfg.defaultSettings();
     int numTreads=tthread::thread::hardware_concurrency();
-
+    if (is_opencl )
+    {
+        reinit_opencl();
+    }
 }
 
 void lightingEngineViewscreen::reinit()
@@ -91,6 +98,8 @@ void lightingEngineViewscreen::reinit()
 
     buffers.update_size();
     was_light = 1;
+    if (is_opencl && ocl_context != nullptr)
+        reinit_buffers();
 }
 
 void plotCircle(int xm, int ym, int r,const std::function<void(int,int)>& setPixel)
@@ -238,6 +247,13 @@ void lightingEngineViewscreen::clear()
         myRenderer->invalidate();
     }
 }
+void lightingEngineViewscreen::loadSettings()
+{
+    
+    cfg.load_settings();
+    if (is_opencl && ocl_context != nullptr)
+        create_kernels();
+}
 void clamp_light(light_buffers& l, rect2d r)
 {
     //TODO: offsets?
@@ -273,6 +289,23 @@ rgbf xyz2rgb(rgbf c) {
     r.b = (v.b > 0.0031308) ? ((1.055 * pow(v.b, (1.0 / 2.4))) - 0.055) : 12.92 * v.b;
     return r;
 }
+rgbf XYZ2Yxy(rgbf c)
+{
+    float sum = c.r + c.g + c.b+0.000001; //avoid div by 0
+
+    c.r /= sum;
+    c.b = c.g / sum;
+    return c;
+}
+rgbf Yxy2XYZ(rgbf c)
+{
+    float smallx = c.r;
+    float smally = c.b;
+
+    c.r = c.g*(smallx / smally);
+    c.b = c.r / smallx - c.r - c.g;
+    return c;
+}
 void rgb_to_cie(light_buffers& l,rect2d r)
 {
     //TODO: offsets?
@@ -280,7 +313,8 @@ void rgb_to_cie(light_buffers& l,rect2d r)
         for(int y=r.first.y;y<r.second.y;y++)
     {
         auto&c = l.get_lgt(x, y, 0);
-        c= rgb2xyz(c);
+        c = rgb2xyz(c);
+        c = XYZ2Yxy(c);
     }
 }
 void cie_to_rgb(light_buffers& l, rect2d r)
@@ -290,12 +324,14 @@ void cie_to_rgb(light_buffers& l, rect2d r)
         for (int y = r.first.y; y<r.second.y; y++)
         {
             auto&c = l.get_lgt(x, y, 0);
+            c = Yxy2XYZ(c);
             c = xyz2rgb(c);
         }
 }
 void light_adapt(light_buffers& l, rect2d r, float adapt_lvl, float min_level, float brightness, float& was_light)
 {
     if (adapt_lvl > 1)adapt_lvl = 1;
+
     float max_light = 0;
     for (int x = r.first.x; x<r.second.x; x++)
         for (int y = r.first.y; y<r.second.y; y++)
@@ -313,7 +349,7 @@ void light_adapt(light_buffers& l, rect2d r, float adapt_lvl, float min_level, f
         for (int y = r.first.y; y<r.second.y; y++)
         {
             auto&c = l.get_lgt(x, y, 0);
-            c *= light_mod;
+            c.g *= light_mod;
         }
 }
 void lightingEngineViewscreen::calculate()
@@ -351,18 +387,24 @@ void lightingEngineViewscreen::calculate()
 
     calculate_sun(cfg, buffers, cfg.dayHour, 0, 0, render_offx, render_offy, render_offz, window_x, window_y, window_z, render_w, render_h, render_d);
     calculate_occlusion_and_emitters(cfg, buffers, render_offx, render_offy, render_offz, window_x, window_y, window_z, render_w, render_h, render_d);
-    calculate_light(cfg, buffers, render_offx, render_offy, render_offz, window_x, window_y, window_z, render_w, render_h, render_d);
+
+    if (is_opencl)
+        calculate_light_opencl(render_w,render_h,render_d,1,1,0);
+    else
+        calculate_light(cfg, buffers, render_offx, render_offy, render_offz, window_x, window_y, window_z, render_w, render_h, render_d);
     
     if (cfg.adapt_speed > 0)
     {
         //transform to ciexyz
-        rgb_to_cie(buffers,vp);
+        if(is_opencl) //opencl takes care of converting the values to ciexyz
+            rgb_to_cie(buffers,vp);
         //light adapt
         light_adapt(buffers,vp,cfg.adapt_speed,cfg.levelDim,cfg.adapt_brightness, was_light);
         //transform to rgb, clamping
         cie_to_rgb(buffers,vp);
-        clamp_light(buffers,vp);
     }
+
+    clamp_light(buffers, vp);
 }
 
 void add_light(rgbf& light_sum, rgbf& occlusion_prod, const rgbf& occlusion, const rgbf& emitter, int dx, int dy)
@@ -466,7 +508,7 @@ void calculate_light(const light_config& config,light_buffers& buffers,int offx,
                     gather_light_line(buffers,l,occlusion,tx,ty,tx - max_radius, ty +       dist,current_z,offx,offy,offz); /*   IV.1 Quadrant */
                     gather_light_line(buffers,l,occlusion,tx,ty,tx -       dist, ty + max_radius,current_z,offx,offy,offz); /*   IV.2 Quadrant */
                 }
-                //we norm the ligth somewhat...
+                //we norm the light somewhat...
                 l *= (1/count_hits);
             }
     }
@@ -487,15 +529,26 @@ void lightingEngineViewscreen::updateWindow()
     {
         fixAdvMode(cfg.adv_mode);
     }
+    rect2d vp = getMapViewport();
 
     if(doDebug==1)
         std::swap(buffers.occlusion,myRenderer->lightGrid);
     else if(doDebug==2)
         std::swap(buffers.emitters, myRenderer->lightGrid);
     else
-        std::swap(buffers.light,myRenderer->lightGrid);
+    {
 
-    rect2d vp=getMapViewport();
+        //std::swap(buffers.light,myRenderer->lightGrid);
+        for(int i=0;i<buffers.w;i++)
+            for (int j = 0; j < buffers.h; j++)
+            {
+                if(i>=vp.first.x && i<vp.second.x && j>=vp.first.y && j<vp.second.y)
+                    myRenderer->lightGrid[i*buffers.h+j] = buffers.light[i*buffers.h + j];
+                else
+                    myRenderer->lightGrid[i*buffers.h + j] = rgbf(1,1,1,1);
+            }
+    }
+    
 
     myRenderer->invalidateRect(vp.first.x,vp.first.y,vp.second.x-vp.first.x,vp.second.y-vp.first.y);
 }
@@ -539,6 +592,180 @@ void lightingEngineViewscreen::fixAdvMode(int mode)
                 mc.setDesignationAt(DFCoord(window_x+x,window_y+y,window_z),d);
             }
     }
+}
+void report_ocl_error(int err)
+{
+    color_ostream_proxy out(Core::getInstance().getConsole());
+    out.printerr("Opencl failure:%d\n", err);
+}
+#define CHECK_OCL_ERROR(v) if (v != CL_SUCCESS) {report_ocl_error(v); return false;}
+void check_ocl_error_noret(int& err)
+{
+    if(err!= CL_SUCCESS){
+        report_ocl_error(err);
+        err = CL_SUCCESS;
+    }
+}
+bool lightingEngineViewscreen::reinit_opencl()
+{
+    //TODO: split into full-inits and buffer resizes etc...
+    deinit_opencl();
+
+    cl_uint platformIdCount = 0;
+    clGetPlatformIDs(0, nullptr, &platformIdCount);
+
+    std::vector<cl_platform_id> platformIds(platformIdCount);
+    clGetPlatformIDs(platformIdCount, platformIds.data(), nullptr);
+
+    //Choose a gpu here. TODO: this needs to check for more than one (integrated gpu) and choose theh better one
+    cl_uint deviceIdCount = 0;
+    clGetDeviceIDs(platformIds[0], CL_DEVICE_TYPE_GPU, 0, nullptr, &deviceIdCount);
+    std::vector<cl_device_id> deviceIds(deviceIdCount);
+    clGetDeviceIDs(platformIds[0], CL_DEVICE_TYPE_GPU, deviceIdCount, deviceIds.data(), nullptr);
+
+    //init context
+    const cl_context_properties contextProperties[] =
+    {
+        CL_CONTEXT_PLATFORM,
+        reinterpret_cast<cl_context_properties> (platformIds[0]),
+        0, 0
+    };
+    ocl_device = deviceIds[0];
+    cl_int error = 0;
+    ocl_context = clCreateContext(contextProperties, 1, &ocl_device, nullptr, nullptr, &error);
+    CHECK_OCL_ERROR(error);
+
+    reinit_buffers();
+
+    ocl_queue = clCreateCommandQueue(ocl_context, ocl_device,0, &error);
+    CHECK_OCL_ERROR(error);
+
+    return create_kernels();
+}
+
+bool lightingEngineViewscreen::reinit_buffers()
+{
+    state_valid = false;
+    cl_int error = 0;
+    clReleaseMemObject(occlusion_buffer);
+    clReleaseMemObject(emitter_buffer);
+    clReleaseMemObject(light_buffer);
+
+    occlusion_buffer = clCreateBuffer(ocl_context, CL_MEM_READ_ONLY, sizeof(rgbf) * (buffers.occlusion.size()), nullptr, &error);
+    CHECK_OCL_ERROR(error);
+
+    emitter_buffer = clCreateBuffer(ocl_context, CL_MEM_READ_ONLY, sizeof(rgbf) * (buffers.emitters.size()), nullptr, &error);
+    CHECK_OCL_ERROR(error);
+
+    light_buffer = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, sizeof(rgbf) * (buffers.light.size()), nullptr, &error);
+    CHECK_OCL_ERROR(error);
+    state_valid = true;
+    return true;
+}
+
+bool lightingEngineViewscreen::create_kernels()
+{
+    state_valid = false;
+    clReleaseKernel(light_calculation_kernel);
+    clReleaseKernel(rgb_to_xyz_kernel);
+    clReleaseProgram(ocl_program);
+
+    size_t lengths[1] = { cfg.opencl_program.size() };
+    const char* sources[1] = { cfg.opencl_program.data() };
+
+    cl_int error = 0;
+    ocl_program = clCreateProgramWithSource(ocl_context, 1, sources, lengths, &error);
+    CHECK_OCL_ERROR(error);
+
+    error = clBuildProgram(ocl_program,1, &ocl_device, nullptr, nullptr, nullptr);
+    if (error != CL_SUCCESS)
+    {
+        size_t ret_size;
+        clGetProgramBuildInfo(ocl_program, ocl_device, CL_PROGRAM_BUILD_LOG,        0, nullptr               , &ret_size);
+
+        std::string log_data;
+        log_data.resize(ret_size + 1, 0);
+        clGetProgramBuildInfo(ocl_program, ocl_device, CL_PROGRAM_BUILD_LOG, ret_size, (void*)log_data.data(), &ret_size);
+
+        color_ostream_proxy out(Core::getInstance().getConsole());
+        out.printerr("Failure to build opencl program: %s", log_data.c_str());
+    }
+    CHECK_OCL_ERROR(error);
+    
+
+    light_calculation_kernel = clCreateKernel(ocl_program, "calculate_light", &error);
+    CHECK_OCL_ERROR(error);
+
+    rgb_to_xyz_kernel = clCreateKernel(ocl_program, "convert_color", &error);
+    CHECK_OCL_ERROR(error);
+
+    //program is ref-counted, so it will not get released until we free our kernels
+    //clReleaseProgram(program);
+    state_valid = true;
+    return true;
+}
+
+void lightingEngineViewscreen::deinit_opencl()
+{
+    state_valid = false;
+    clReleaseMemObject(occlusion_buffer);
+    clReleaseMemObject(emitter_buffer);
+    clReleaseMemObject(light_buffer);
+
+    clReleaseCommandQueue(ocl_queue);
+
+    clReleaseKernel(light_calculation_kernel);
+    clReleaseKernel(rgb_to_xyz_kernel);
+    clReleaseProgram(ocl_program);
+
+    clReleaseContext(ocl_context);
+
+    occlusion_buffer = nullptr;
+    emitter_buffer = nullptr;
+    light_buffer = nullptr;
+
+    ocl_context = nullptr;
+    ocl_queue = nullptr;
+
+    light_calculation_kernel = nullptr;
+    rgb_to_xyz_kernel = nullptr;
+
+    ocl_device = nullptr;
+}
+
+void lightingEngineViewscreen::calculate_light_opencl(int w,int h,int d,int offx,int offy,int offz)
+{
+    cl_int error = 0;
+    if (!state_valid)
+        return;
+    error = clSetKernelArg(light_calculation_kernel, 0, sizeof(cl_mem), &occlusion_buffer); check_ocl_error_noret(error);
+    error = clSetKernelArg(light_calculation_kernel, 1, sizeof(cl_mem), &emitter_buffer); check_ocl_error_noret(error);
+    error = clSetKernelArg(light_calculation_kernel, 2, sizeof(cl_mem), &light_buffer); check_ocl_error_noret(error);
+
+    
+
+    error = clEnqueueWriteBuffer(ocl_queue, occlusion_buffer, true, 0, buffers.occlusion.size() * sizeof(rgbf), buffers.occlusion.data(), 0, nullptr, nullptr); check_ocl_error_noret(error);
+    error = clEnqueueWriteBuffer(ocl_queue, emitter_buffer, true, 0, buffers.emitters.size() * sizeof(rgbf), buffers.emitters.data(), 0, nullptr, nullptr); check_ocl_error_noret(error);
+
+    size_t work_size[3] = { buffers.w,buffers.h,buffers.d };
+    size_t local_work[3] = { 1,1,1 };//TODO: move some work to local threads
+    error = clEnqueueNDRangeKernel(ocl_queue, light_calculation_kernel, 3, nullptr, work_size, local_work, 0, nullptr, nullptr); check_ocl_error_noret(error);
+
+    for (int i = 0; i<cfg.num_bounces; i++)
+    {
+        error = clEnqueueCopyBuffer(ocl_queue, light_buffer, emitter_buffer, 0, 0, buffers.emitters.size() * sizeof(rgbf), 0, nullptr, nullptr); check_ocl_error_noret(error);
+        error = clEnqueueNDRangeKernel(ocl_queue, light_calculation_kernel, 3, nullptr, work_size, local_work, 0, nullptr, nullptr); check_ocl_error_noret(error);
+    }
+
+    if(cfg.adapt_speed>0)
+    {
+        error = clSetKernelArg(rgb_to_xyz_kernel, 0, sizeof(cl_mem), &light_buffer); check_ocl_error_noret(error);
+        error = clEnqueueNDRangeKernel(ocl_queue, rgb_to_xyz_kernel, 3, nullptr, work_size, local_work, 0, nullptr, nullptr); check_ocl_error_noret(error);
+    }
+
+    error = clEnqueueReadBuffer(ocl_queue, light_buffer, false, 0, buffers.light.size() * sizeof(rgbf), buffers.light.data(), 0, nullptr, nullptr); check_ocl_error_noret(error);
+    
+    error = clFinish(ocl_queue); check_ocl_error_noret(error);
 }
 
 /*

@@ -9,6 +9,7 @@
 
 #include "map_reading.hpp"
 
+#include "CL/opencl.h"
 
 bool isInRect(const df::coord2d& pos,const DFHack::rect2d& rect);
 struct renderer_light : public renderer_wrap {
@@ -98,10 +99,7 @@ public:
     virtual void updateWindow()=0;
     virtual void preRender()=0;
 
-    void loadSettings()
-    {
-        cfg.load_settings();
-    }
+    virtual void loadSettings() = 0;
     virtual void clear()=0;
 
     virtual void setHour(float h)
@@ -146,7 +144,7 @@ void calculate_light(const light_config& cfg, light_buffers& buffers, int offx, 
 class lightingEngineViewscreen:public lightingEngine
 {
 public:
-    lightingEngineViewscreen(renderer_light* target);
+    lightingEngineViewscreen(renderer_light* target,bool is_opencl);
     ~lightingEngineViewscreen();
     void reinit();
     void calculate();
@@ -155,14 +153,38 @@ public:
     void preRender();
     void clear();
 
+    void loadSettings();
+
     void debug(int mode){doDebug=mode;};
 private:
+    std::atomic<bool> state_valid;
     void fixAdvMode(int mode);
     float was_light;
+    bool is_opencl = false;
     //light_job_list job_list;
     //std::vector<std::unique_ptr<tthread::thread>> threads;
     //void generate_jobs();
     //void shutdown_threads();
+    /*          OPENCL PART         */
+    cl_mem occlusion_buffer=nullptr;
+    cl_mem emitter_buffer = nullptr;
+    cl_mem light_buffer = nullptr;
+
+    cl_context ocl_context = nullptr;
+    cl_command_queue ocl_queue = nullptr;
+
+    cl_program ocl_program = nullptr;
+    cl_kernel light_calculation_kernel = nullptr;
+    cl_kernel rgb_to_xyz_kernel = nullptr;
+
+    cl_device_id ocl_device = nullptr;
+
+    bool reinit_opencl();
+    bool reinit_buffers();
+    bool create_kernels();
+    void deinit_opencl();
+
+    void calculate_light_opencl(int w,int h,int d,int offx,int offy,int offz);
 private:
     int doDebug;
 };

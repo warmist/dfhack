@@ -413,7 +413,7 @@ static command_result rendermax(color_ostream &out, vector <string> & parameters
             removeOld();
             renderer_light *myRender=new renderer_light(enabler->renderer);
             installNew(myRender, new_mode);
-            engine=new lightingEngineViewscreen(myRender);
+            engine=new lightingEngineViewscreen(myRender,is_opencl);
 
             if (Core::getInstance().isWorldLoaded())
                 plugin_onstatechange(out, SC_WORLD_LOADED);
@@ -452,14 +452,14 @@ static command_result rendermax(color_ostream &out, vector <string> & parameters
             }
         }
         else
-            out.printerr("Light mode already enabled");
+            out.printerr("Light mode already enabled\n");
 
         return CR_OK;
     }
     else if(cmd=="disable")
     {
         if(current_mode==MODE_DEFAULT)
-            out.print("%s\n","Not installed, doing nothing.");
+            out.print("Not installed, doing nothing.\n");
         else
             removeOld();
         CoreSuspender guard;

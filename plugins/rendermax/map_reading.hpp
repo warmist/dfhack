@@ -126,6 +126,8 @@ struct light_config //defines all materials and stuff
     //items
     std::unordered_map<std::pair<int, int>, itemLightDef> itemDefs;
 
+    std::string opencl_program;//NOTE: maybe not the best place to store it?
+
     void load_settings();//load up settings from lua
 };
 
