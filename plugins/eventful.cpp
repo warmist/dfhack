@@ -95,7 +95,7 @@ DEFINE_LUA_EVENT_NH_1(onProjItemCheckMovement, df::proj_itemst*);
 DEFINE_LUA_EVENT_NH_2(onProjUnitCheckImpact, df::proj_unitst*, bool);
 DEFINE_LUA_EVENT_NH_1(onProjUnitCheckMovement, df::proj_unitst*);
 //event manager
-DEFINE_LUA_EVENT_NH_1(onBuildingCreatedDestroyed, int32_t);
+DEFINE_LUA_EVENT_NH_2(onBuildingCreatedDestroyed, int32_t,int32_t);
 DEFINE_LUA_EVENT_NH_1(onJobInitiated, df::job*);
 DEFINE_LUA_EVENT_NH_1(onJobStarted, df::job*);
 DEFINE_LUA_EVENT_NH_1(onJobCompleted, df::job*);
@@ -185,10 +185,10 @@ void ev_mng_invasion(color_ostream& out, void* ptr)
     int32_t myId=(int32_t)(intptr_t)ptr;
     onInvasion(out,myId);
 }
-static void ev_mng_building(color_ostream& out, void* ptr)
+static void ev_mng_building(color_ostream& out, void* ptr,int32_t tick)
 {
     int32_t id=(int32_t)(intptr_t)ptr;
-    onBuildingCreatedDestroyed(out, id);
+    onBuildingCreatedDestroyed(out, id,tick);
 }
 static void ev_mng_inventory(color_ostream& out, void* ptr)
 {
