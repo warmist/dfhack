@@ -60,6 +60,7 @@ distribution.
 #include "modules/Translation.h"
 #include "modules/Units.h"
 #include "modules/World.h"
+#include "modules/EventManager.h"
 
 #include "LuaWrapper.h"
 #include "LuaTools.h"
@@ -3098,7 +3099,64 @@ static const luaL_Reg dfhack_internal_funcs[] = {
     { "md5File", internal_md5file },
     { NULL, NULL }
 };
+/****** Event Manager module ******/
 
+static const LuaWrapper::FunctionReg dfhack_em_module[] = {
+    //WRAPM(Gui, getDepthAt),
+    { NULL, NULL }
+};
+
+static int EM_REGISTRY_TOKEN = 0;
+static int em_register_event(lua_State *L)
+{
+    //we want something like this: em.CallbackName.disambiguation_name={callback=f,ticks=how_often}
+    //  for now lets do the easier thing: em.RegisterEvent(callback_type,disambiguation_name,f,how_often)
+    int event_type = luaL_checkint(L, 1);
+    const char* name = luaL_checkstring(L, 2); //2nd arg is name
+
+    luaL_checktype(L, 3, LUA_TFUNCTION); //3rd arg is callback function
+    //sadly for functions (and e.g. tables) there is no C side thing we can keep to track it...
+    //so we'll have to construct our own
+
+    int ticks = luaL_checkint(L, 4); //4th arg is "ticks" or...
+    //int ticks = luaL_optint(L, 4, 100);//with default value
+
+
+    if (lua_rawgetp(L, LUA_REGISTRYINDEX, &EM_REGISTRY_TOKEN) == LUA_TNIL) //we failed to get out function table
+    {
+        lua_pop(L, 1); //drop the nil
+        lua_newtable(L); //make new table (i.e. push({}))
+        for (int i = 0; i < DFHack::EventManager::EventType::EVENTTYPE_MAX; i++)
+        {
+            //go over the events and set new_table[event_type]={}
+            lua_newtable(L);
+            lua_rawseti(L, -2, i);
+        }
+
+        lua_dup(L);//after setting it would pop it off, so we make another ref
+
+        //ok, so this is stolen from LuaTools.cpp. This is not "as used in manual" but works just fine. Trust me (tm).
+        // this basically sets _REGISTRY_[our_pointer]=new_table
+        // now we can use this "out_pointer" as key anywhere in this cpp file. (also probably "extern" it too)...
+        lua_rawsetp(L, LUA_REGISTRYINDEX, &EM_REGISTRY_TOKEN);
+    }
+
+    lua_rawgeti(L, -1, event_type); //get the _REGISTRY_[our_pointer][event_type] table
+
+    lua_pushvalue(L, 3);//get a copy of function arg
+    lua_setfield(L, -2, name); //do _REGISTRY_[our_pointer][event_type][name]=function
+
+    //now we need to inform C part
+
+    //DFHack::EventManager::registerListener(event_type, lua_handler, ? ? , ticks);
+
+    return 0;//we don't push anything to stack
+}
+
+static const luaL_Reg dfhack_em_funcs[] = {
+    {"registerEvent",em_register_event },
+    { NULL, NULL }
+};
 
 /************************
  *  Main Open function  *
@@ -3128,4 +3186,5 @@ void OpenDFHackApi(lua_State *state)
     OpenModule(state, "kitchen", dfhack_kitchen_module);
     OpenModule(state, "console", dfhack_console_module);
     OpenModule(state, "internal", dfhack_internal_module, dfhack_internal_funcs);
+    OpenModule(state, "event_manager", dfhack_em_module, dfhack_em_funcs);
 }

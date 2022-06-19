@@ -38,7 +38,7 @@ namespace DFHack {
                 UNIT_ATTACK,
                 UNLOAD,
                 INTERACTION,
-                EVENT_MAX
+                EVENTTYPE_MAX
             };
         }
 
@@ -123,6 +123,7 @@ namespace DFHack {
         DFHACK_EXPORT void unregisterAll(Plugin* plugin);
         void manageEvents(color_ostream& out);
         void onStateChange(color_ostream& out, state_change_event event);
+
     }
 }
 

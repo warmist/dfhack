@@ -57,8 +57,8 @@ using namespace df::enums;
 static multimap<int32_t, EventHandler> tickQueue;
 
 //TODO: consider unordered_map of pairs, or unordered_map of unordered_set, or whatever
-static multimap<Plugin*, EventHandler> handlers[EventType::EVENT_MAX];
-static int32_t eventLastTick[EventType::EVENT_MAX];
+static multimap<Plugin*, EventHandler> handlers[EventType::EVENTTYPE_MAX];
+static int32_t eventLastTick[EventType::EVENTTYPE_MAX];
 
 static const int32_t ticksPerYear = 403200;
 
@@ -175,7 +175,7 @@ eventManager_t getManager(EventType::EventType t) {
             return manageUnloadEvent;
         case EventType::INTERACTION:
             return manageInteractionEvent;
-        case EventType::EVENT_MAX:
+        case EventType::EVENTTYPE_MAX:
             return nullptr;
             //default:
             //we don't do this... because then the compiler wouldn't error for missing cases in the enum
@@ -183,10 +183,10 @@ eventManager_t getManager(EventType::EventType t) {
     return nullptr;
 }
 
-std::array<eventManager_t,EventType::EVENT_MAX> compileManagerArray() {
-    std::array<eventManager_t, EventType::EVENT_MAX> managers{};
+std::array<eventManager_t,EventType::EVENTTYPE_MAX> compileManagerArray() {
+    std::array<eventManager_t, EventType::EVENTTYPE_MAX> managers{};
     auto t = (EventType::EventType) 0;
-    while (t < EventType::EVENT_MAX) {
+    while (t < EventType::EVENTTYPE_MAX) {
         managers[t] = getManager(t);
         t = (EventType::EventType) int(t + 1);
     }
@@ -341,7 +341,7 @@ void DFHack::EventManager::onStateChange(color_ostream& out, state_change_event 
 }
 
 void DFHack::EventManager::manageEvents(color_ostream& out) {
-    static const std::array<eventManager_t, EventType::EVENT_MAX> eventManager = compileManagerArray();
+    static const std::array<eventManager_t, EventType::EVENTTYPE_MAX> eventManager = compileManagerArray();
     if ( !gameLoaded ) {
         return;
     }
@@ -352,7 +352,7 @@ void DFHack::EventManager::manageEvents(color_ostream& out) {
 
     int32_t tick = df::global::world->frame_counter;
 
-    for ( size_t a = 0; a < EventType::EVENT_MAX; a++ ) {
+    for ( size_t a = 0; a < EventType::EVENTTYPE_MAX; a++ ) {
         if ( handlers[a].empty() )
             continue;
         int32_t eventFrequency = -100;
