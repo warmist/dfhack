@@ -3107,6 +3107,39 @@ static const LuaWrapper::FunctionReg dfhack_em_module[] = {
 };
 
 static int EM_REGISTRY_TOKEN = 0;
+
+//this part is held either in EM or somewhere here but then reflects part of EM logic
+struct EM_callback{
+    lua_State* L; //we need this to do any lua stuff
+    //void* key;//we could use same scheme as LuaTools.cpp. That way we don't need two level table.
+    //  But we would need something that does not change it's pointer.
+    //  E.g. std::unordered_map<POD> would not work, std::unordered_map<T*> would.
+    //OR we could use this struct pointer...
+    int event_type;
+    const char* key;
+    int tick;
+};
+//this needs to be accesible from EventManager.hpp somehow...
+void invoke_callback(EM_callback* ptr)
+{
+    lua_State* L=ptr->L;
+    //some magic to invoke the function
+    //probably macro based so you can pass in all the needed args
+    //or... UGH templates );
+    
+    //something above in callstack has figured out we need to be called (by checking our tick)
+    
+    //then we push all the arguments
+    //TODO
+    //get the function from registry
+    lua_rawgetp(L, LUA_REGISTRYINDEX, &EM_REGISTRY_TOKEN);
+    lua_rawgeti(L, -1, ptr->event_type); //get the _REGISTRY_[our_pointer][event_type] table
+    lua_getfield(L, -1, ptr->key);
+    //call it
+    //TODO: same as luaTools.cpp does it (need error function etc...)
+    //lua_pcall(L,??);
+}
+
 static int em_register_event(lua_State *L)
 {
     //we want something like this: em.CallbackName.disambiguation_name={callback=f,ticks=how_often}
@@ -3149,7 +3182,12 @@ static int em_register_event(lua_State *L)
     //now we need to inform C part
 
     //DFHack::EventManager::registerListener(event_type, lua_handler, ? ? , ticks);
-
+    
+    /* alternative
+        auto* ptr=some_get_or_reg_event_function(L,event_type,ticks);
+        lua_pushvalue(L, 3);//get a copy of function arg
+        lua_rawsetp(L,-2,ptr); //this would allow easier direct access to the function
+    */
     return 0;//we don't push anything to stack
 }
 
